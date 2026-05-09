@@ -39,19 +39,15 @@ echo ""
 
 # ─── Gatekeeper ──────────────────────────────────────────────────────────────
 echo "--- OPA Gatekeeper ---"
-kubectl wait --for=condition=Ready pod \
-  -l control-plane=controller-manager \
-  -n gatekeeper-system \
-  --timeout=90s &>/dev/null \
-  && pass "Gatekeeper controller-manager pod is Ready" \
-  || fail "Gatekeeper controller-manager pod is NOT ready"
+kubectl rollout status deployment/gatekeeper-controller-manager \
+  -n gatekeeper-system --timeout=90s &>/dev/null \
+  && pass "Gatekeeper controller-manager deployment is Ready" \
+  || fail "Gatekeeper controller-manager deployment is NOT ready"
 
-kubectl wait --for=condition=Ready pod \
-  -l control-plane=audit-controller \
-  -n gatekeeper-system \
-  --timeout=90s &>/dev/null \
-  && pass "Gatekeeper audit pod is Ready" \
-  || fail "Gatekeeper audit pod is NOT ready"
+kubectl rollout status deployment/gatekeeper-audit \
+  -n gatekeeper-system --timeout=90s &>/dev/null \
+  && pass "Gatekeeper audit deployment is Ready" \
+  || fail "Gatekeeper audit deployment is NOT ready"
 
 kubectl get constrainttemplate k8srequiredlabels &>/dev/null \
   && pass "ConstraintTemplate 'k8srequiredlabels' exists" \

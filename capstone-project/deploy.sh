@@ -30,11 +30,9 @@ echo ""
 echo "[3/6] Installing OPA Gatekeeper..."
 kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/release-3.14/deploy/gatekeeper.yaml
 
-echo "Waiting for Gatekeeper controller to be ready..."
-kubectl wait --for=condition=Ready pod \
-  -l control-plane=controller-manager \
-  -n gatekeeper-system \
-  --timeout=120s
+echo "Waiting for Gatekeeper deployments to be ready..."
+kubectl rollout status deployment/gatekeeper-controller-manager -n gatekeeper-system --timeout=120s
+kubectl rollout status deployment/gatekeeper-audit -n gatekeeper-system --timeout=120s
 
 echo "Gatekeeper installed."
 echo ""
