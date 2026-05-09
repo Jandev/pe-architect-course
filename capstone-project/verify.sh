@@ -3,6 +3,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Detect OrbStack — same check used in deploy.sh
+IS_ORBSTACK=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -q '^orbstack$' && echo true || echo false)
+
 PASS=0
 FAIL=0
 
@@ -153,6 +156,82 @@ else
 fi
 echo ""
 
+# ─── Falco Runtime Security ───────────────────────────────────────────────────
+echo "--- Falco Runtime Security ---"
+if [ "$IS_ORBSTACK" = "true" ]; then
+  echo "  [SKIP] Falco was not deployed on OrbStack (BPF verifier limit exceeded — deploy in Coder)"
+else
+  kubectl get namespace falco-system &>/dev/null \
+    && pass "Namespace 'falco-system' exists" \
+    || fail "Namespace 'falco-system' not found"
+
+  kubectl rollout status daemonset/falco \
+    -n falco-system --timeout=120s &>/dev/null \
+    && pass "Falco DaemonSet is Ready" \
+    || fail "Falco DaemonSet is NOT ready"
+
+  if kubectl logs -n falco-system daemonset/falco 2>/dev/null | grep -q "custom_rules"; then
+    pass "Falco custom rules are loaded"
+  else
+    fail "Falco custom rules not detected in logs"
+  fi
+fi
+echo ""
+
+# ─── Kubescape Compliance Scanning ───────────────────────────────────────────
+echo "--- Kubescape Compliance Scanning ---"
+kubectl get namespace kubescape &>/dev/null \
+  && pass "Namespace 'kubescape' exists" \
+  || fail "Namespace 'kubescape' not found"
+
+kubectl rollout status deployment/kubescape \
+  -n kubescape --timeout=120s &>/dev/null \
+  && pass "Kubescape deployment is Ready" \
+  || fail "Kubescape deployment is NOT ready"
+
+if kubectl get crd rules.kubescape.io &>/dev/null; then
+  pass "Kubescape rules CRD is registered"
+else
+  fail "Kubescape rules CRD not found"
+fi
+
+# WorkloadConfigurationScan is served by an aggregated API (storage pod), not a CRD
+if kubectl get workloadconfigurationscans -A &>/dev/null; then
+  pass "Kubescape WorkloadConfigurationScan aggregated API is available"
+else
+  fail "Kubescape WorkloadConfigurationScan API not available (storage pod may not be ready)"
+fi
+echo ""
+
+# ─── Gatekeeper SecOps (Root Prevention) ─────────────────────────────────────
+echo "--- Gatekeeper SecOps (Root Prevention) ---"
+kubectl get constrainttemplate falcorootprevention &>/dev/null \
+  && pass "ConstraintTemplate 'falcorootprevention' exists" \
+  || fail "ConstraintTemplate 'falcorootprevention' not found"
+
+kubectl get falcorootprevention enforce-falco-root-prevention &>/dev/null \
+  && pass "Constraint 'enforce-falco-root-prevention' exists" \
+  || fail "Constraint 'enforce-falco-root-prevention' not found"
+
+# runAsUser: 0 — should be DENIED
+SECOPS_DENY_OUTPUT=$(kubectl apply -f "${SCRIPT_DIR}/gatekeeper/secops/deployment.yaml" 2>&1 || true)
+kubectl delete -f "${SCRIPT_DIR}/gatekeeper/secops/deployment.yaml" &>/dev/null || true
+if echo "${SECOPS_DENY_OUTPUT}" | grep -q "denied\|admission webhook"; then
+  pass "Deploying root-user container (UID 0) is correctly DENIED"
+else
+  fail "Deploying root-user container (UID 0) was NOT denied (secops policy may not be active)"
+fi
+
+# runAsUser: 1000, runAsNonRoot: true — should be ALLOWED
+SECOPS_ALLOW_OUTPUT=$(kubectl apply -f "${SCRIPT_DIR}/gatekeeper/secops/deployment-working.yaml" 2>&1 || true)
+if echo "${SECOPS_ALLOW_OUTPUT}" | grep -qv "Error\|error\|denied"; then
+  pass "Deploying non-root container (UID 1000) is correctly ALLOWED"
+  kubectl delete -f "${SCRIPT_DIR}/gatekeeper/secops/deployment-working.yaml" &>/dev/null || true
+else
+  fail "Deploying non-root container (UID 1000) FAILED: ${SECOPS_ALLOW_OUTPUT}"
+fi
+echo ""
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
 echo ""
@@ -160,9 +239,6 @@ echo ""
 if [[ ${FAIL} -eq 0 ]]; then
   echo "All checks passed. Foundation setup is complete."
   echo ""
-  echo "REMINDER: Delete the ns-must-have-gk constraint before deploying Falco:"
-echo "  kubectl delete -f ${SCRIPT_DIR}/gatekeeper/namespace-labels/constraint.yaml"
-echo "  kubectl delete -f ${SCRIPT_DIR}/gatekeeper/namespace-labels/ns-with-label.yaml"
   exit 0
 else
   echo "Some checks failed. Review the output above and consult workshop/foundation/README.md for troubleshooting."
