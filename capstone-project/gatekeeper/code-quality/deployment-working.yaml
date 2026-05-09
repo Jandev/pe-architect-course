@@ -20,6 +20,9 @@ spec:
       containers:
         - name: my-app
           image: nginx:1.27-alpine
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
           resources:
             limits:
               cpu: 100m
