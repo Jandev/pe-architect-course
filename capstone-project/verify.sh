@@ -32,7 +32,7 @@ kubectl wait --for=condition=Ready pod \
   && pass "Grafana pod is Ready" \
   || fail "Grafana pod is NOT ready"
 
-kubectl get service grafana-stack-grafana -n monitoring &>/dev/null \
+kubectl get service grafana-stack -n monitoring &>/dev/null \
   && pass "Grafana service exists" \
   || fail "Grafana service not found"
 echo ""
