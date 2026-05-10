@@ -6,6 +6,34 @@ metadata:
     # K8sRequiredLabels: all namespaces must carry admission: "true"
     admission: "true"
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: teams-api
+  namespace: teams-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: teams-api
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: teams-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: teams-api
+subjects:
+  - kind: ServiceAccount
+    name: teams-api
+    namespace: teams-api
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,6 +54,7 @@ spec:
       labels:
         app: teams-api
     spec:
+      serviceAccountName: teams-api
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
