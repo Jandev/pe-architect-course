@@ -39,7 +39,29 @@ class TeamsOperator:
             logger.info("Loaded local kubeconfig")
         
         self.k8s_core_v1 = client.CoreV1Api()
+        self._seed_from_cluster()
         
+    def _seed_from_cluster(self) -> None:
+        """Seed known_teams and team_namespaces from namespaces already managed by this operator."""
+        try:
+            ns_list = self.k8s_core_v1.list_namespace(
+                label_selector="app.kubernetes.io/managed-by=teams-operator"
+            )
+            for ns in ns_list.items:
+                labels = ns.metadata.labels or {}
+                team_id = labels.get("teams.example.com/team-id")
+                if team_id:
+                    self.known_teams.add(team_id)
+                    self.team_namespaces[team_id] = ns.metadata.name
+            logger.info(
+                "Seeded %d teams from existing cluster namespaces",
+                len(self.known_teams),
+            )
+        except ApiException as e:
+            logger.error("Failed to seed state from cluster: %s", e)
+        except Exception as e:
+            logger.error("Unexpected error seeding from cluster: %s", e)
+
     def sanitize_namespace_name(self, team_name: str) -> str:
         """Convert team name to valid Kubernetes namespace name"""
         # Lowercase, replace spaces/special chars with hyphens, remove consecutive hyphens
