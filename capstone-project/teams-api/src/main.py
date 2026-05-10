@@ -1,14 +1,87 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict
+import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from kubernetes import client as k8s_client, config as k8s_config
+
+logger = logging.getLogger(__name__)
+
+# In-memory storage – declared before lifespan so the startup hook can populate it
+teams_store: Dict[str, Dict] = {}
+
+
+def _seed_teams_from_cluster() -> None:
+    """Populate teams_store from Kubernetes namespaces managed by teams-operator."""
+    try:
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+
+        v1 = k8s_client.CoreV1Api()
+        ns_list = v1.list_namespace(
+            label_selector="app.kubernetes.io/managed-by=teams-operator"
+        )
+        seeded = 0
+        for ns in ns_list.items:
+            labels = ns.metadata.labels or {}
+            annotations = ns.metadata.annotations or {}
+
+            team_id = labels.get("teams.example.com/team-id")
+            original_name = annotations.get("teams.example.com/original-team-name")
+            created_at_str = annotations.get("teams.example.com/created-at")
+
+            if not team_id or not original_name:
+                logger.warning(
+                    "Skipping namespace '%s': missing required labels/annotations",
+                    ns.metadata.name,
+                )
+                continue
+
+            if team_id in teams_store:
+                continue  # already present (e.g. API restarted mid-session)
+
+            try:
+                created_at = (
+                    datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    if created_at_str
+                    else datetime.now(timezone.utc)
+                )
+            except ValueError:
+                created_at = datetime.now(timezone.utc)
+
+            teams_store[team_id] = {
+                "id": team_id,
+                "name": original_name,
+                "created_at": created_at,
+            }
+            seeded += 1
+
+        logger.info("Seeded %d teams from cluster namespaces", seeded)
+
+    except k8s_config.ConfigException:
+        logger.warning(
+            "No Kubernetes config available; skipping cluster seeding (running locally?)"
+        )
+    except Exception as exc:
+        logger.warning("Failed to seed teams from cluster: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _seed_teams_from_cluster()
+    yield
+
 
 app = FastAPI(
     title="Teams API",
     description="A simple API for team leads to create and manage teams",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS
@@ -19,9 +92,6 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
-
-# In-memory storage
-teams_store: Dict[str, Dict] = {}
 
 # Pydantic models
 class TeamCreate(BaseModel):
