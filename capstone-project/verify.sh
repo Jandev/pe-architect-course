@@ -232,6 +232,39 @@ else
 fi
 echo ""
 
+# ─── Keycloak ────────────────────────────────────────────────────────────────
+echo "--- Keycloak ---"
+
+kubectl get namespace keycloak &>/dev/null \
+  && pass "Namespace 'keycloak' exists" \
+  || fail "Namespace 'keycloak' not found"
+
+kubectl rollout status deployment/keycloak-postgres \
+  -n keycloak --timeout=120s &>/dev/null \
+  && pass "Keycloak Postgres deployment is Ready" \
+  || fail "Keycloak Postgres deployment is NOT ready"
+
+kubectl rollout status deployment/keycloak \
+  -n keycloak --timeout=180s &>/dev/null \
+  && pass "Keycloak deployment is Ready" \
+  || fail "Keycloak deployment is NOT ready"
+
+kubectl port-forward -n keycloak svc/keycloak-service 18080:8080 &>/dev/null &
+KC_PF_PID=$!
+sleep 3
+if curl -sf http://localhost:18080/realms/teams &>/dev/null; then
+  pass "Keycloak 'teams' realm is reachable"
+else
+  fail "Keycloak 'teams' realm is NOT reachable"
+fi
+kill "${KC_PF_PID}" 2>/dev/null
+wait "${KC_PF_PID}" 2>/dev/null
+
+kubectl get configmap keycloak-realm-config -n keycloak &>/dev/null \
+  && pass "Keycloak realm ConfigMap exists" \
+  || fail "Keycloak realm ConfigMap not found"
+echo ""
+
 # ─── Teams API ────────────────────────────────────────────────────────────────
 echo "--- Teams API ---"
 
@@ -257,6 +290,9 @@ echo ""
 
 if [[ ${FAIL} -eq 0 ]]; then
   echo "All checks passed. Foundation setup is complete."
+  echo ""
+  echo "  Keycloak:   http://platform-auth.127.0.0.1.sslip.io:30080  (admin / admin)"
+  echo "  Teams API:  http://teams-api.127.0.0.1.sslip.io:30080"
   echo ""
   exit 0
 else
