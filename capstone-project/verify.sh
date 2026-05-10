@@ -284,6 +284,25 @@ else
 fi
 echo ""
 
+# ─── Teams UI ────────────────────────────────────────────────────────────────
+echo "--- Teams UI ---"
+
+kubectl get namespace teams-ui &>/dev/null \
+  && pass "Namespace 'teams-ui' exists" \
+  || fail "Namespace 'teams-ui' not found"
+
+kubectl rollout status deployment/teams-ui \
+  -n teams-ui --timeout=120s &>/dev/null \
+  && pass "Teams UI deployment is Ready" \
+  || fail "Teams UI deployment is NOT ready"
+
+if curl -sf http://teams-ui.127.0.0.1.sslip.io:30080 &>/dev/null; then
+  pass "Teams UI is reachable at http://teams-ui.127.0.0.1.sslip.io:30080"
+else
+  fail "Teams UI is NOT reachable at http://teams-ui.127.0.0.1.sslip.io:30080"
+fi
+echo ""
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
 echo ""
@@ -293,6 +312,7 @@ if [[ ${FAIL} -eq 0 ]]; then
   echo ""
   echo "  Keycloak:   http://platform-auth.127.0.0.1.sslip.io:30080  (admin / admin)"
   echo "  Teams API:  http://teams-api.127.0.0.1.sslip.io:30080"
+  echo "  Teams UI:   http://teams-ui.127.0.0.1.sslip.io:30080"
   echo ""
   exit 0
 else
