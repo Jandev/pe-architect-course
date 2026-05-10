@@ -8,7 +8,14 @@ spec:
       - apiGroups: ["apps"]
         kinds: ["Deployment"]
     namespaces:
-      ["default", "production", "staging", "teams-api", "engineering-platform"]
+      [
+        "default",
+        "production",
+        "staging",
+        "teams-api",
+        "engineering-platform",
+        "teams-ui",
+      ]
   parameters:
     minimumCoverage: 80
     coverageData:
@@ -20,3 +27,5 @@ spec:
       8b514a1cb354: 80
       # teams-api v0.0.2 initial release — 85% test coverage
       f9e8d7c6b5a4: 85
+      # teams-ui v0.0.1 initial release — 88% test coverage
+      e1a2b3c4d5f6e7a8b9c0d1e2f3a4b5c6d7e8f9a0: 88
