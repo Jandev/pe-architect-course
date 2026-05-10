@@ -18,3 +18,5 @@ spec:
       d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0a1b2c3: 67
       e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0a1b2c3d4: 88
       8b514a1cb354: 80
+      # teams-api v0.0.2 initial release — 85% test coverage
+      f9e8d7c6b5a4: 85
