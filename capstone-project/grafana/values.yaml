@@ -15,6 +15,13 @@ prometheus:
           resources:
             requests:
               storage: 10Gi
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - prometheus.127.0.0.1.sslip.io
+    paths:
+      - /
 
 # Grafana configuration
 grafana:
@@ -27,8 +34,14 @@ grafana:
       cpu: 500m
   adminPassword: admin123
   service:
-    type: NodePort
-    nodePort: 30300
+    type: ClusterIP
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.127.0.0.1.sslip.io
+    paths:
+      - /
   persistence:
     enabled: true
     size: 2Gi
@@ -56,6 +69,13 @@ alertmanager:
       limits:
         memory: 256Mi
         cpu: 200m
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - alertmanager.127.0.0.1.sslip.io
+    paths:
+      - /
 
 # Node Exporter
 nodeExporter:

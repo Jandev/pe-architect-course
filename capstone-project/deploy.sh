@@ -203,8 +203,9 @@ echo ""
 # ─── 16. Summary ─────────────────────────────────────────────────────────────
 echo "[17/17] Deployment complete. Run verify.sh to validate the setup."
 echo ""
-echo "  Grafana:       kubectl port-forward -n monitoring service/grafana-stack-grafana 3000:80"
-echo "                 Then open http://localhost:3000  (admin / admin123)"
+echo "  Grafana:       http://grafana.127.0.0.1.sslip.io:30080  (admin / admin123)"
+echo "  Prometheus:    http://prometheus.127.0.0.1.sslip.io:30080"
+echo "  AlertManager:  http://alertmanager.127.0.0.1.sslip.io:30080"
 echo "  Gatekeeper:    kubectl get pods -n gatekeeper-system"
 echo "  Kubescape:     kubectl get workloadconfigurationscans -A"
 if [ "$IS_ORBSTACK" = "true" ]; then
