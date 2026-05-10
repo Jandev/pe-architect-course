@@ -9,8 +9,8 @@ metadata:
   labels:
     app: raw-deployment-denied
   annotations:
-    # CodeCoverageSimple: f9e8d7c6b5a4 → 85% coverage (≥80% required)
-    commit-sha: "f9e8d7c6b5a4"
+    # CodeCoverageSimple: ecb1f0e → 85% coverage (≥80% required)
+    commit-sha: "ecb1f0e"
 spec:
   replicas: 1
   selector:

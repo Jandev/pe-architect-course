@@ -31,3 +31,5 @@ spec:
       f9e8d7c6b5a4: 85
       # teams-ui v0.0.1 initial release — 88% test coverage
       e1a2b3c4d5f6e7a8b9c0d1e2f3a4b5c6d7e8f9a0: 88
+      # capstone: Argo Rollouts Blue/Green implementation — 85% test coverage
+      ecb1f0e: 85
