@@ -1,0 +1,13 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireArgoRollouts
+metadata:
+  name: require-argo-rollouts-in-production
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment"]
+    namespaces: ["production"]
+  parameters:
+    namespaces:
+      - "production"

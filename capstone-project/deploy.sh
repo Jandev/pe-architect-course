@@ -274,23 +274,80 @@ kubectl rollout status deployment/teams-operator -n engineering-platform --timeo
 echo "Teams Operator is ready."
 echo ""
 
-# ─── 25. Summary ─────────────────────────────────────────────────────────────────────────────
-echo "[25/25] Deployment complete. Run verify.sh to validate the setup."
+# ─── 25. Install Argo Rollouts ────────────────────────────────────────────────
+echo "[25/30] Installing Argo Rollouts controller..."
+kubectl apply -f "${SCRIPT_DIR}/argo-rollouts/namespace.yaml"
+kubectl apply -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml -n argo-rollouts
+echo "Waiting for Argo Rollouts controller..."
+kubectl rollout status deployment/argo-rollouts -n argo-rollouts --timeout=180s
+echo "Argo Rollouts is ready."
 echo ""
-echo "  Grafana:       http://grafana.127.0.0.1.sslip.io:30080  (admin / admin123)"
-echo "  Prometheus:    http://prometheus.127.0.0.1.sslip.io:30080"
-echo "  AlertManager:  http://alertmanager.127.0.0.1.sslip.io:30080"
-echo "  Gatekeeper:    kubectl get pods -n gatekeeper-system"
-echo "  Kubescape:     kubectl get workloadconfigurationscans -A"
+
+# ─── 26. Deploy Production Namespace + RequireArgoRollouts Constraint ─────────
+echo "[26/30] Deploying production namespace and RequireArgoRollouts Gatekeeper constraint..."
+kubectl apply -f "${SCRIPT_DIR}/gatekeeper/argo-rollouts/namespace.yaml"
+kubectl apply -f "${SCRIPT_DIR}/gatekeeper/argo-rollouts/constraint-template.yaml"
+echo "Waiting for RequireArgoRollouts ConstraintTemplate to be ready..."
+kubectl wait --for=condition=Ready constrainttemplate/requireargorollouts --timeout=60s
+kubectl apply -f "${SCRIPT_DIR}/gatekeeper/argo-rollouts/constraint.yaml"
+echo "RequireArgoRollouts constraint applied."
+echo ""
+
+# ─── 27. Build rollout-demo-api Docker Image ─────────────────────────────────
+echo "[27/30] Building rollout-demo-api Docker image..."
+docker build -t jandev/rollout-demo-api:v1 "${SCRIPT_DIR}/rollout-demo-api/src/"
+echo "rollout-demo-api image built: jandev/rollout-demo-api:v1"
+echo ""
+
+# ─── 28. Push rollout-demo-api to Docker Hub ─────────────────────────────────
+echo "[28/30] Pushing rollout-demo-api image to Docker Hub..."
+docker push jandev/rollout-demo-api:v1
+echo "Image pushed to Docker Hub: jandev/rollout-demo-api:v1"
+echo ""
+
+# ─── 29. Load rollout-demo-api Image into Kind Cluster ───────────────────────
 if [ "$IS_ORBSTACK" = "true" ]; then
-  echo "  Falco:         Skipped on OrbStack (deploy in Coder for full runtime detection)"
+  echo "[29/30] Skipping kind image load on OrbStack (local Docker images are directly accessible)."
 else
-  echo "  Falco:         kubectl get pods -n falco-system"
+  if [ -z "$KIND_CLUSTER" ]; then
+    echo "[29/30] WARNING: No kind cluster found — skipping image load. Run 'kind load docker-image jandev/rollout-demo-api:v1 --name <cluster>' manually."
+  else
+    echo "[29/30] Loading rollout-demo-api image into kind cluster '${KIND_CLUSTER}'..."
+    kind load docker-image jandev/rollout-demo-api:v1 --name "${KIND_CLUSTER}"
+    echo "Image loaded into cluster '${KIND_CLUSTER}'."
+  fi
 fi
-echo "  Metrics:       kubectl top nodes  (may take ~60s to populate)"
-echo "  Keycloak:      http://platform-auth.127.0.0.1.sslip.io:30080"
-echo "  Teams API:     http://teams-api.127.0.0.1.sslip.io:30080"
-echo "  Teams UI:      http://teams-ui.127.0.0.1.sslip.io:30080  (login: admin / admin123)"
-echo "  Teams Operator: kubectl get pods -n engineering-platform"
-echo "  Teams CLI:     ./tli health"
+echo ""
+
+# ─── 30. Deploy rollout-demo-api via Argo Rollouts ───────────────────────────
+echo "[30/30] Deploying rollout-demo-api via Argo Rollouts..."
+kubectl apply -f "${SCRIPT_DIR}/rollout-demo-api/service.yaml"
+kubectl apply -f "${SCRIPT_DIR}/rollout-demo-api/ingress.yaml"
+kubectl apply -f "${SCRIPT_DIR}/rollout-demo-api/rollout.yaml"
+echo "Waiting for rollout-demo-api Rollout to become healthy..."
+kubectl argo rollouts status rollout-demo-api -n production --timeout=120s
+echo "rollout-demo-api is healthy."
+echo ""
+
+# ─── Summary ─────────────────────────────────────────────────────────────────
+echo "Deployment complete. Run verify.sh to validate the setup."
+echo ""
+echo "  Grafana:          http://grafana.127.0.0.1.sslip.io:30080  (admin / admin123)"
+echo "  Prometheus:       http://prometheus.127.0.0.1.sslip.io:30080"
+echo "  AlertManager:     http://alertmanager.127.0.0.1.sslip.io:30080"
+echo "  Gatekeeper:       kubectl get pods -n gatekeeper-system"
+echo "  Kubescape:        kubectl get workloadconfigurationscans -A"
+if [ "$IS_ORBSTACK" = "true" ]; then
+  echo "  Falco:            Skipped on OrbStack (deploy in Coder for full runtime detection)"
+else
+  echo "  Falco:            kubectl get pods -n falco-system"
+fi
+echo "  Metrics:          kubectl top nodes  (may take ~60s to populate)"
+echo "  Keycloak:         http://platform-auth.127.0.0.1.sslip.io:30080"
+echo "  Teams API:        http://teams-api.127.0.0.1.sslip.io:30080"
+echo "  Teams UI:         http://teams-ui.127.0.0.1.sslip.io:30080  (login: admin / admin123)"
+echo "  Teams Operator:   kubectl get pods -n engineering-platform"
+echo "  Teams CLI:        ./tli health"
+echo "  Argo Rollouts:    kubectl argo rollouts list rollouts -n production"
+echo "  Rollout Demo API: http://rollout-demo-api.127.0.0.1.sslip.io:30080"
 echo ""

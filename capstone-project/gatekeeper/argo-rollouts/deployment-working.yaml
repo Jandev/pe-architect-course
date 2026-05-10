@@ -1,0 +1,50 @@
+# This Argo Rollout should be ALLOWED — it is not an apps/v1 Deployment,
+# so the RequireArgoRollouts constraint does not apply to it.
+# It demonstrates the correct way to deploy to the 'production' namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollout-allowed
+  namespace: production
+  labels:
+    app: rollout-allowed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rollout-allowed
+  template:
+    metadata:
+      labels:
+        app: rollout-allowed
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginx:1.21
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+  strategy:
+    blueGreen:
+      activeService: rollout-allowed-active
+      autoPromotionEnabled: true

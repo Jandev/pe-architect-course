@@ -1,0 +1,49 @@
+# This deployment should be DENIED by the RequireArgoRollouts constraint.
+# It targets the 'production' namespace using a raw apps/v1 Deployment,
+# which is forbidden — an Argo Rollout must be used instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raw-deployment-denied
+  namespace: production
+  labels:
+    app: raw-deployment-denied
+  annotations:
+    # CodeCoverageSimple: f9e8d7c6b5a4 → 85% coverage (≥80% required)
+    commit-sha: "f9e8d7c6b5a4"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: raw-deployment-denied
+  template:
+    metadata:
+      labels:
+        app: raw-deployment-denied
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginx:1.21
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"

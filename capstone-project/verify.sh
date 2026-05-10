@@ -398,15 +398,91 @@ fi
 echo ""
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
+echo "=== Argo Rollouts ==="
+echo ""
+
+# ─── Argo Rollouts Controller ─────────────────────────────────────────────────
+echo "--- Argo Rollouts Controller ---"
+kubectl get namespace argo-rollouts &>/dev/null \
+  && pass "Namespace 'argo-rollouts' exists" \
+  || fail "Namespace 'argo-rollouts' not found"
+
+kubectl rollout status deployment/argo-rollouts \
+  -n argo-rollouts --timeout=120s &>/dev/null \
+  && pass "Argo Rollouts controller deployment is Ready" \
+  || fail "Argo Rollouts controller deployment is NOT ready"
+echo ""
+
+# ─── RequireArgoRollouts Gatekeeper Constraint ────────────────────────────────
+echo "--- RequireArgoRollouts Constraint ---"
+kubectl get constrainttemplate requireargorollouts &>/dev/null \
+  && pass "ConstraintTemplate 'requireargorollouts' exists" \
+  || fail "ConstraintTemplate 'requireargorollouts' not found"
+
+kubectl get requireargorollouts require-argo-rollouts-in-production &>/dev/null \
+  && pass "Constraint 'require-argo-rollouts-in-production' exists" \
+  || fail "Constraint 'require-argo-rollouts-in-production' not found"
+
+# Raw Deployment in 'production' should be DENIED
+ARGO_DENY_OUTPUT=$(kubectl apply -f "${SCRIPT_DIR}/gatekeeper/argo-rollouts/deployment.yaml" 2>&1 || true)
+kubectl delete -f "${SCRIPT_DIR}/gatekeeper/argo-rollouts/deployment.yaml" &>/dev/null || true
+if echo "${ARGO_DENY_OUTPUT}" | grep -q "denied\|admission webhook"; then
+  pass "Deploying a raw Deployment to 'production' is correctly DENIED"
+else
+  fail "Deploying a raw Deployment to 'production' was NOT denied (RequireArgoRollouts policy may not be active)"
+fi
+echo ""
+
+# ─── Production Namespace ─────────────────────────────────────────────────────
+echo "--- Production Namespace ---"
+kubectl get namespace production &>/dev/null \
+  && pass "Namespace 'production' exists" \
+  || fail "Namespace 'production' not found"
+
+PROD_LABEL=$(kubectl get namespace production -o jsonpath='{.metadata.labels.admission}' 2>/dev/null || true)
+if [ "${PROD_LABEL}" = "true" ]; then
+  pass "Namespace 'production' has required 'admission: true' label"
+else
+  fail "Namespace 'production' is missing 'admission: true' label"
+fi
+echo ""
+
+# ─── rollout-demo-api (Argo Rollout) ──────────────────────────────────────────
+echo "--- rollout-demo-api (Argo Rollouts Blue/Green) ---"
+
+ROLLOUT_STATUS=$(kubectl argo rollouts status rollout-demo-api -n production --timeout=60s 2>&1 || true)
+if echo "${ROLLOUT_STATUS}" | grep -q "Healthy\|healthy"; then
+  pass "rollout-demo-api Rollout is Healthy"
+else
+  fail "rollout-demo-api Rollout is NOT healthy: ${ROLLOUT_STATUS}"
+fi
+
+if curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/health &>/dev/null; then
+  pass "rollout-demo-api /health endpoint is reachable"
+else
+  fail "rollout-demo-api /health endpoint is NOT reachable at http://rollout-demo-api.127.0.0.1.sslip.io:30080/health"
+fi
+
+VERSION_RESPONSE=$(curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/ 2>/dev/null || true)
+if echo "${VERSION_RESPONSE}" | grep -q '"version"'; then
+  pass "rollout-demo-api GET / returns version info"
+else
+  fail "rollout-demo-api GET / did not return expected version info"
+fi
+echo ""
+
+# ─── Summary ─────────────────────────────────────────────────────────────────
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
 echo ""
 
 if [[ ${FAIL} -eq 0 ]]; then
   echo "All checks passed. Foundation setup is complete."
   echo ""
-  echo "  Keycloak:   http://platform-auth.127.0.0.1.sslip.io:30080  (admin / admin)"
-  echo "  Teams API:  http://teams-api.127.0.0.1.sslip.io:30080"
-  echo "  Teams UI:   http://teams-ui.127.0.0.1.sslip.io:30080"
+  echo "  Keycloak:         http://platform-auth.127.0.0.1.sslip.io:30080  (admin / admin)"
+  echo "  Teams API:        http://teams-api.127.0.0.1.sslip.io:30080"
+  echo "  Teams UI:         http://teams-ui.127.0.0.1.sslip.io:30080"
+  echo "  Rollout Demo API: http://rollout-demo-api.127.0.0.1.sslip.io:30080"
+  echo "  Argo Rollouts:    kubectl argo rollouts list rollouts -n production"
   echo ""
   exit 0
 else

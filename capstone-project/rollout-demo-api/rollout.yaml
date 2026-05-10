@@ -1,0 +1,78 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollout-demo-api
+  namespace: production
+  labels:
+    app: rollout-demo-api
+  annotations:
+    # CodeCoverageSimple: d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0a1b2c3 → 85% coverage (≥80% required)
+    # Note: Gatekeeper's CodeCoverageSimple only targets apps/v1 Deployment — this Rollout is not subject to it.
+    # The annotation is included here for documentation purposes.
+    commit-sha: "rollout-demo-api-v1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rollout-demo-api
+  template:
+    metadata:
+      labels:
+        app: rollout-demo-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rollout-demo-api
+          image: jandev/rollout-demo-api:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: VERSION
+              value: "v1"
+            - name: COLOR
+              value: "blue"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  strategy:
+    blueGreen:
+      # Active service routes production traffic
+      activeService: rollout-demo-api-active
+      # Preview service routes traffic to the new (green) version before promotion
+      previewService: rollout-demo-api-preview
+      # Require manual promotion — do not auto-switch traffic
+      autoPromotionEnabled: false
