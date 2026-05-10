@@ -232,6 +232,25 @@ else
 fi
 echo ""
 
+# ─── Teams API ────────────────────────────────────────────────────────────────
+echo "--- Teams API ---"
+
+kubectl get namespace teams-api &>/dev/null \
+  && pass "Namespace 'teams-api' exists" \
+  || fail "Namespace 'teams-api' not found"
+
+kubectl rollout status deployment/teams-api \
+  -n teams-api --timeout=120s &>/dev/null \
+  && pass "Teams API deployment is Ready" \
+  || fail "Teams API deployment is NOT ready"
+
+if "${SCRIPT_DIR}/tli" health &>/dev/null; then
+  pass "tli health exits successfully"
+else
+  fail "tli health returned non-zero exit code (API may not be reachable)"
+fi
+echo ""
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
 echo ""

@@ -6,20 +6,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Detect OrbStack — its ARM64 kernel BPF verifier limit blocks Falco's eBPF driver
 IS_ORBSTACK=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -q '^orbstack$' && echo true || echo false)
 
+# Detect kind cluster name dynamically (used for image loading)
+KIND_CLUSTER=$(kind get clusters 2>/dev/null | head -1 || true)
+
 echo "=== Foundation Setup: Grafana, Gatekeeper, Falco, Metrics Server ==="
 echo ""
 
 # ─── 1. Helm Repositories ────────────────────────────────────────────────────
-echo "[1/11] Adding Helm repositories..."
+echo "[1/16] Adding Helm repositories..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
 helm repo add falcosecurity https://falcosecurity.github.io/charts
 helm repo add kubescape https://kubescape.github.io/helm-charts/
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 echo ""
 
+# ─── 2. Ingress-Nginx ────────────────────────────────────────────
+echo "[2/17] Installing Ingress-Nginx..."
+kubectl apply -f "${SCRIPT_DIR}/ingress-nginx/namespace.yaml"
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --values "${SCRIPT_DIR}/ingress-nginx/values.yaml" \
+  --wait \
+  --timeout=300s
+echo "Ingress-Nginx installed."
+echo ""
+
 # ─── 2. Grafana Stack ────────────────────────────────────────────────────────
-echo "[2/11] Installing Grafana stack (kube-prometheus-stack)..."
+echo "[3/17] Installing Grafana stack (kube-prometheus-stack)..."
 kubectl apply -f "${SCRIPT_DIR}/grafana/namespace.yaml"
 
 helm upgrade --install grafana-stack prometheus-community/kube-prometheus-stack \
@@ -32,7 +47,7 @@ echo "Grafana stack installed."
 echo ""
 
 # ─── 3. Gatekeeper ───────────────────────────────────────────────────────────
-echo "[3/11] Installing OPA Gatekeeper..."
+echo "[4/17] Installing OPA Gatekeeper..."
 kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/release-3.14/deploy/gatekeeper.yaml
 
 echo "Waiting for Gatekeeper deployments to be ready..."
@@ -43,7 +58,7 @@ echo "Gatekeeper installed."
 echo ""
 
 # ─── 4. Gatekeeper Constraint Template & Constraint ──────────────────────────
-echo "[4/11] Applying Gatekeeper namespace-labels constraint..."
+echo "[5/17] Applying Gatekeeper namespace-labels constraint..."
 kubectl apply -f "${SCRIPT_DIR}/gatekeeper/namespace-labels/constraint-template.yaml"
 
 echo "Waiting for K8sRequiredLabels CRD to be established..."
@@ -57,7 +72,7 @@ echo "Namespace-labels constraint applied."
 echo ""
 
 # ─── 5. CVE Vulnerability Scanning ──────────────────────────────────────────
-echo "[5/11] Applying CVE vulnerability scanning constraint..."
+echo "[6/17] Applying CVE vulnerability scanning constraint..."
 kubectl apply -f "${SCRIPT_DIR}/gatekeeper/vulnerability/cve-constraint-template.yaml"
 
 echo "Waiting for VulnerabilityScan CRD to be established..."
@@ -71,7 +86,7 @@ echo "CVE vulnerability scanning constraint applied."
 echo ""
 
 # ─── 6. Code Quality Enforcement ─────────────────────────────────────────────
-echo "[6/11] Applying code quality (coverage) constraint..."
+echo "[7/17] Applying code quality (coverage) constraint..."
 kubectl apply -f "${SCRIPT_DIR}/gatekeeper/code-quality/quality-constraint-template.yaml"
 
 echo "Waiting for CodeCoverageSimple CRD to be established..."
@@ -85,7 +100,7 @@ echo "Code quality constraint applied."
 echo ""
 
 # ─── 7. Falco Runtime Security ───────────────────────────────────────────────
-echo "[7/11] Installing Falco runtime security..."
+echo "[8/17] Installing Falco runtime security..."
 if [ "$IS_ORBSTACK" = "true" ]; then
   echo "⚠️  Skipping Falco on OrbStack: the ARM64 kernel BPF verifier limit (1,000,000 insns)"
   echo "   is exceeded by Falco's modern_ebpf driver (1,000,001 insns required)."
@@ -106,7 +121,7 @@ fi
 echo ""
 
 # ─── 8. Kubescape Compliance Scanning ────────────────────────────────────────
-echo "[8/11] Installing Kubescape compliance scanning..."
+echo "[9/17] Installing Kubescape compliance scanning..."
 kubectl apply -f "${SCRIPT_DIR}/kubescape/namespace.yaml"
 
 helm upgrade --install kubescape kubescape/kubescape-operator \
@@ -120,7 +135,7 @@ echo "Kubescape installed."
 echo ""
 
 # ─── 9. Gatekeeper SecOps Constraint ─────────────────────────────────────────
-echo "[9/11] Applying Gatekeeper secops (root prevention) constraint..."
+echo "[10/17] Applying Gatekeeper secops (root prevention) constraint..."
 kubectl apply -f "${SCRIPT_DIR}/gatekeeper/secops/constraint-template.yaml"
 
 echo "Waiting for FalcoRootPrevention CRD to be established..."
@@ -134,7 +149,7 @@ echo "SecOps root prevention constraint applied."
 echo ""
 
 # ─── 10. Metrics Server ──────────────────────────────────────────────────────
-echo "[10/11] Installing Metrics Server..."
+echo "[11/17] Installing Metrics Server..."
 helm upgrade --install metrics-server metrics-server/metrics-server \
   --namespace kube-system \
   --values "${SCRIPT_DIR}/metrics-server/values.yaml" \
@@ -144,8 +159,49 @@ helm upgrade --install metrics-server metrics-server/metrics-server \
 echo "Metrics Server installed."
 echo ""
 
-# ─── 11. Summary ─────────────────────────────────────────────────────────────
-echo "[11/11] Deployment complete. Run verify.sh to validate the setup."
+# ─── 11. Build and Publish Teams CLI ────────────────────────────────────────
+echo "[12/17] Building Teams CLI as a single-file executable..."
+DOTNET_RID=$(dotnet --info 2>/dev/null | awk '/^[[:space:]]+RID:/{print $2; exit}')
+dotnet publish "${SCRIPT_DIR}/teams-cli/teams-cli.cs" -c Release -r "${DOTNET_RID}" -p:PublishSingleFile=true -p:SelfContained=true -o "${SCRIPT_DIR}/bin"
+cp "${SCRIPT_DIR}/bin/tli" "${SCRIPT_DIR}/tli"
+chmod +x "${SCRIPT_DIR}/tli"
+echo "Teams CLI installed: ${SCRIPT_DIR}/tli"
+echo ""
+
+# ─── 12. Build Teams API Docker Image ────────────────────────────────────────
+echo "[13/17] Building Teams API Docker image..."
+docker build -t teams-api:local "${SCRIPT_DIR}/teams-api/src/"
+echo "Teams API image built: teams-api:local"
+echo ""
+
+# ─── 13. Load Image into Kind Cluster ────────────────────────────────────────
+if [ "$IS_ORBSTACK" = "true" ]; then
+  echo "[14/17] Skipping kind image load on OrbStack (local Docker images are directly accessible)."
+else
+  if [ -z "$KIND_CLUSTER" ]; then
+    echo "[14/17] WARNING: No kind cluster found — skipping image load. Run 'kind load docker-image teams-api:local --name <cluster>' manually."
+  else
+    echo "[14/17] Loading Teams API image into kind cluster '${KIND_CLUSTER}'..."
+    kind load docker-image teams-api:local --name "${KIND_CLUSTER}"
+    echo "Image loaded into cluster '${KIND_CLUSTER}'."
+  fi
+fi
+echo ""
+
+# ─── 14. Deploy Teams API to Kubernetes ──────────────────────────────────────
+echo "[15/17] Deploying Teams API to Kubernetes..."
+kubectl apply -f "${SCRIPT_DIR}/teams-api/deployment.yaml"
+echo "Teams API deployed."
+echo ""
+
+# ─── 15. Wait for Teams API Rollout ──────────────────────────────────────────
+echo "[16/17] Waiting for Teams API rollout..."
+kubectl rollout status deployment/teams-api -n teams-api --timeout=120s
+echo "Teams API is ready."
+echo ""
+
+# ─── 16. Summary ─────────────────────────────────────────────────────────────
+echo "[17/17] Deployment complete. Run verify.sh to validate the setup."
 echo ""
 echo "  Grafana:       kubectl port-forward -n monitoring service/grafana-stack-grafana 3000:80"
 echo "                 Then open http://localhost:3000  (admin / admin123)"
@@ -157,4 +213,6 @@ else
   echo "  Falco:         kubectl get pods -n falco-system"
 fi
 echo "  Metrics:       kubectl top nodes  (may take ~60s to populate)"
+echo "  Teams API:     http://teams-api.127.0.0.1.sslip.io:30080"
+  echo "  Teams CLI:     ./tli health"
 echo ""
