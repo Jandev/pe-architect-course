@@ -303,6 +303,100 @@ else
 fi
 echo ""
 
+# ─── Teams Operator ───────────────────────────────────────────────────────────
+echo "--- Teams Operator ---"
+
+kubectl get namespace engineering-platform &>/dev/null \
+  && pass "Namespace 'engineering-platform' exists" \
+  || fail "Namespace 'engineering-platform' not found"
+
+kubectl rollout status deployment/teams-operator \
+  -n engineering-platform --timeout=120s &>/dev/null \
+  && pass "Teams Operator deployment is Ready" \
+  || fail "Teams Operator deployment is NOT ready"
+
+kubectl get clusterrole teams-operator &>/dev/null \
+  && pass "ClusterRole 'teams-operator' exists" \
+  || fail "ClusterRole 'teams-operator' not found"
+
+kubectl get clusterrolebinding teams-operator &>/dev/null \
+  && pass "ClusterRoleBinding 'teams-operator' exists" \
+  || fail "ClusterRoleBinding 'teams-operator' not found"
+
+# Smoke test: create a team → wait for operator to reconcile → verify namespace
+SMOKE_TEAM_NAME="verify-operator-smoke-test"
+SMOKE_NAMESPACE="team-verify-operator-smoke-test"
+
+echo "  Smoke test: creating team '${SMOKE_TEAM_NAME}' via Teams API..."
+SMOKE_RESPONSE=$(curl -sf -X POST "http://teams-api.127.0.0.1.sslip.io:30080/teams" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\": \"${SMOKE_TEAM_NAME}\"}" 2>&1 || true)
+SMOKE_TEAM_ID=$(echo "${SMOKE_RESPONSE}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || true)
+
+if [ -z "${SMOKE_TEAM_ID}" ]; then
+  fail "Teams Operator smoke test: could not create team via API (response: ${SMOKE_RESPONSE})"
+else
+  # Wait up to 40s for the operator to reconcile and create the namespace
+  SMOKE_DEADLINE=$(( $(date +%s) + 40 ))
+  while [ "$(date +%s)" -lt "${SMOKE_DEADLINE}" ]; do
+    if kubectl get namespace "${SMOKE_NAMESPACE}" &>/dev/null; then
+      break
+    fi
+    sleep 5
+  done
+
+  if kubectl get namespace "${SMOKE_NAMESPACE}" &>/dev/null; then
+    pass "Teams Operator smoke test: namespace '${SMOKE_NAMESPACE}' created after team was added"
+
+    # Check admission label
+    ADMISSION_LABEL=$(kubectl get namespace "${SMOKE_NAMESPACE}" -o jsonpath='{.metadata.labels.admission}' 2>/dev/null || true)
+    if [ "${ADMISSION_LABEL}" = "true" ]; then
+      pass "Teams Operator smoke test: namespace has required 'admission: true' label"
+    else
+      fail "Teams Operator smoke test: namespace is missing 'admission: true' label"
+    fi
+
+    # Check created-by label
+    CREATED_BY=$(kubectl get namespace "${SMOKE_NAMESPACE}" -o jsonpath='{.metadata.labels.teams\.example\.com/created-by}' 2>/dev/null || true)
+    if [ "${CREATED_BY}" = "teams-operator" ]; then
+      pass "Teams Operator smoke test: namespace has 'teams.example.com/created-by: teams-operator' label"
+    else
+      fail "Teams Operator smoke test: namespace is missing 'teams.example.com/created-by' label"
+    fi
+
+    # Check created-at annotation
+    CREATED_AT=$(kubectl get namespace "${SMOKE_NAMESPACE}" -o jsonpath='{.metadata.annotations.teams\.example\.com/created-at}' 2>/dev/null || true)
+    if [ -n "${CREATED_AT}" ]; then
+      pass "Teams Operator smoke test: namespace has 'teams.example.com/created-at' annotation (${CREATED_AT})"
+    else
+      fail "Teams Operator smoke test: namespace is missing 'teams.example.com/created-at' annotation"
+    fi
+  else
+    fail "Teams Operator smoke test: namespace '${SMOKE_NAMESPACE}' was NOT created within 40s"
+  fi
+
+  # Verify operator deletes the namespace when the team is removed
+  echo "  Smoke test: deleting team '${SMOKE_TEAM_NAME}' via Teams API..."
+  curl -sf -X DELETE "http://teams-api.127.0.0.1.sslip.io:30080/teams/${SMOKE_TEAM_ID}" &>/dev/null || true
+
+  DELETE_DEADLINE=$(( $(date +%s) + 40 ))
+  while [ "$(date +%s)" -lt "${DELETE_DEADLINE}" ]; do
+    if ! kubectl get namespace "${SMOKE_NAMESPACE}" &>/dev/null; then
+      break
+    fi
+    sleep 5
+  done
+
+  if ! kubectl get namespace "${SMOKE_NAMESPACE}" &>/dev/null; then
+    pass "Teams Operator smoke test: namespace '${SMOKE_NAMESPACE}' was deleted after team was removed"
+  else
+    fail "Teams Operator smoke test: namespace '${SMOKE_NAMESPACE}' was NOT deleted within 40s after team removal"
+    # Force-clean so leftover state doesn't affect the cluster
+    kubectl delete namespace "${SMOKE_NAMESPACE}" --ignore-not-found &>/dev/null || true
+  fi
+fi
+echo ""
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
 echo ""
