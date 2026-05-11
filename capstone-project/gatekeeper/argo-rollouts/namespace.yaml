@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    # K8sRequiredLabels: all namespaces must carry admission: "true"
+    admission: "true"

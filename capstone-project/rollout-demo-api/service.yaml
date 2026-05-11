@@ -1,0 +1,30 @@
+---
+# Active service — receives production traffic after promotion
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollout-demo-api-active
+  namespace: production
+spec:
+  selector:
+    app: rollout-demo-api
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
+---
+# Preview service — receives traffic during Blue/Green rollout before promotion
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollout-demo-api-preview
+  namespace: production
+spec:
+  selector:
+    app: rollout-demo-api
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
