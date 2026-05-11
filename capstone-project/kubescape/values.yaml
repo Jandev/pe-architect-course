@@ -1,0 +1,5 @@
+capabilities:
+  configurationScan: enable
+  continuousScan: enable
+  vulnerabilityScan: enable
+  runtimeDetection: disable # requires eBPF — same kernel limitation as Falco on OrbStack

@@ -1,0 +1,3 @@
+# Required for development/lab environments where kubelets use self-signed certificates
+args:
+  - --kubelet-insecure-tls

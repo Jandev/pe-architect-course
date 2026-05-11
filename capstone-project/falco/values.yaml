@@ -1,0 +1,10 @@
+driver:
+  # modern_ebpf is the recommended driver (kmod/ebpf are deprecated in 0.43+).
+  # Requires: kernel >= 5.8 with BTF enabled and sufficient BPF verifier limits.
+  # NOTE: OrbStack on macOS/Apple Silicon does not support any Falco driver
+  # (modern_ebpf fails with E2BIG, ebpf/kmod fail without kernel headers).
+  # Run this in the Coder environment (Linux VM) for full Falco functionality.
+  kind: modern_ebpf
+
+falcosidekick:
+  enabled: true

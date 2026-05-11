@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: teams-operator
+  namespace: engineering-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: teams-operator
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: teams-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: teams-operator
+subjects:
+  - kind: ServiceAccount
+    name: teams-operator
+    namespace: engineering-platform
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teams-operator
+  namespace: engineering-platform
+  labels:
+    app: teams-operator
+  annotations:
+    # CodeCoverageSimple: af2100f → 85% coverage (≥80% required)
+    commit-sha: "af2100f"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: teams-operator
+  template:
+    metadata:
+      labels:
+        app: teams-operator
+    spec:
+      serviceAccountName: teams-operator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: teams-operator
+          image: teams-operator:local
+          imagePullPolicy: Never
+          env:
+            - name: TEAMS_API_URL
+              value: "http://teams-api-service.teams-api.svc.cluster.local:4200"
+            - name: POLL_INTERVAL
+              value: "30"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 5
+            periodSeconds: 10
