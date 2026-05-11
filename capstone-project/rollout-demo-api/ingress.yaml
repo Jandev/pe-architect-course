@@ -21,3 +21,28 @@ spec:
                 name: rollout-demo-api-active
                 port:
                   number: 8000
+---
+# Preview ingress — exposes the green (v2) pod before promotion
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rollout-demo-api-preview-ingress
+  namespace: production
+  annotations:
+    nginx.ingress.kubernetes.io/cors-allow-methods: GET,POST,PUT,DELETE,OPTIONS
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-headers: Content-Type,Authorization
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: rollout-demo-api-preview.127.0.0.1.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rollout-demo-api-preview
+                port:
+                  number: 8000

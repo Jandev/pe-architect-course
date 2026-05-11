@@ -450,24 +450,102 @@ echo ""
 # ─── rollout-demo-api (Argo Rollout) ──────────────────────────────────────────
 echo "--- rollout-demo-api (Argo Rollouts Blue/Green) ---"
 
-ROLLOUT_STATUS=$(kubectl argo rollouts status rollout-demo-api -n production --timeout=60s 2>&1 || true)
-if echo "${ROLLOUT_STATUS}" | grep -q "Healthy\|healthy"; then
-  pass "rollout-demo-api Rollout is Healthy"
+# Use jsonpath — kubectl argo rollouts plugin is not required
+ROLLOUT_PHASE=$(kubectl get rollout rollout-demo-api -n production \
+  -o jsonpath='{.status.phase}' 2>/dev/null || true)
+if [ "${ROLLOUT_PHASE}" = "Healthy" ] || [ "${ROLLOUT_PHASE}" = "Paused" ]; then
+  pass "rollout-demo-api Rollout phase is '${ROLLOUT_PHASE}'"
 else
-  fail "rollout-demo-api Rollout is NOT healthy: ${ROLLOUT_STATUS}"
+  fail "rollout-demo-api Rollout phase is '${ROLLOUT_PHASE}' (expected Healthy or Paused)"
 fi
 
+# ── Active service (blue / v1) ─────────────────────────────────────────────
 if curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/health &>/dev/null; then
-  pass "rollout-demo-api /health endpoint is reachable"
+  pass "Active service /health endpoint is reachable"
 else
-  fail "rollout-demo-api /health endpoint is NOT reachable at http://rollout-demo-api.127.0.0.1.sslip.io:30080/health"
+  fail "Active service /health endpoint is NOT reachable"
 fi
 
-VERSION_RESPONSE=$(curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/ 2>/dev/null || true)
-if echo "${VERSION_RESPONSE}" | grep -q '"version"'; then
-  pass "rollout-demo-api GET / returns version info"
+ACTIVE_RESPONSE=$(curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/ 2>/dev/null || true)
+ACTIVE_COLOR=$(echo "${ACTIVE_RESPONSE}" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('color',''))" 2>/dev/null || true)
+ACTIVE_VERSION=$(echo "${ACTIVE_RESPONSE}" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" 2>/dev/null || true)
+
+if [ "${ACTIVE_COLOR}" = "blue" ]; then
+  pass "Active service returns color='blue' (v1 — before promotion)"
 else
-  fail "rollout-demo-api GET / did not return expected version info"
+  fail "Active service returned color='${ACTIVE_COLOR}' (expected 'blue')"
+fi
+if [ "${ACTIVE_VERSION}" = "v1" ]; then
+  pass "Active service returns version='v1'"
+else
+  fail "Active service returned version='${ACTIVE_VERSION}' (expected 'v1')"
+fi
+
+# ── Preview service (green / v2) ───────────────────────────────────────────
+if curl -sf http://rollout-demo-api-preview.127.0.0.1.sslip.io:30080/health &>/dev/null; then
+  pass "Preview service /health endpoint is reachable"
+else
+  fail "Preview service /health endpoint is NOT reachable"
+fi
+
+PREVIEW_RESPONSE=$(curl -sf http://rollout-demo-api-preview.127.0.0.1.sslip.io:30080/ 2>/dev/null || true)
+PREVIEW_COLOR=$(echo "${PREVIEW_RESPONSE}" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('color',''))" 2>/dev/null || true)
+PREVIEW_VERSION=$(echo "${PREVIEW_RESPONSE}" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" 2>/dev/null || true)
+
+if [ "${PREVIEW_COLOR}" = "green" ]; then
+  pass "Preview service returns color='green' (v2 — awaiting promotion)"
+else
+  fail "Preview service returned color='${PREVIEW_COLOR}' (expected 'green')"
+fi
+if [ "${PREVIEW_VERSION}" = "v2" ]; then
+  pass "Preview service returns version='v2'"
+else
+  fail "Preview service returned version='${PREVIEW_VERSION}' (expected 'v2')"
+fi
+echo ""
+
+# ─── Blue/Green Promotion Validation ─────────────────────────────────────────
+echo "--- Blue/Green Promotion Validation ---"
+echo "  Promoting rollout (green/v2 → active)..."
+kubectl argo rollouts promote rollout-demo-api -n production &>/dev/null || true
+
+# Wait up to 120s for the rollout to become Healthy again after promotion
+PROMOTE_DEADLINE=$(( $(date +%s) + 120 ))
+while [ "$(date +%s)" -lt "${PROMOTE_DEADLINE}" ]; do
+  PROMOTE_PHASE=$(kubectl get rollout rollout-demo-api -n production \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)
+  [ "${PROMOTE_PHASE}" = "Healthy" ] && break
+  sleep 3
+done
+PROMOTE_PHASE=$(kubectl get rollout rollout-demo-api -n production \
+  -o jsonpath='{.status.phase}' 2>/dev/null || true)
+
+if [ "${PROMOTE_PHASE}" = "Healthy" ]; then
+  pass "Rollout is Healthy after promotion"
+else
+  fail "Rollout did not reach Healthy state within 120s (phase: ${PROMOTE_PHASE})"
+fi
+
+# After promotion the active service must serve the promoted color (green/v2)
+PROMOTED_RESPONSE=$(curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/ 2>/dev/null || true)
+PROMOTED_COLOR=$(echo "${PROMOTED_RESPONSE}" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('color',''))" 2>/dev/null || true)
+PROMOTED_VERSION=$(echo "${PROMOTED_RESPONSE}" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" 2>/dev/null || true)
+
+if [ "${PROMOTED_COLOR}" = "green" ]; then
+  pass "After promotion: active service now returns color='green' (v2 promoted to production)"
+else
+  fail "After promotion: active service returned color='${PROMOTED_COLOR}' (expected 'green')"
+fi
+if [ "${PROMOTED_VERSION}" = "v2" ]; then
+  pass "After promotion: active service now returns version='v2'"
+else
+  fail "After promotion: active service returned version='${PROMOTED_VERSION}' (expected 'v2')"
 fi
 echo ""
 
@@ -481,8 +559,8 @@ if [[ ${FAIL} -eq 0 ]]; then
   echo "  Keycloak:         http://platform-auth.127.0.0.1.sslip.io:30080  (admin / admin)"
   echo "  Teams API:        http://teams-api.127.0.0.1.sslip.io:30080"
   echo "  Teams UI:         http://teams-ui.127.0.0.1.sslip.io:30080"
-  echo "  Rollout Demo API: http://rollout-demo-api.127.0.0.1.sslip.io:30080"
-  echo "  Argo Rollouts:    kubectl argo rollouts list rollouts -n production"
+  echo "  Rollout Demo API (active):  http://rollout-demo-api.127.0.0.1.sslip.io:30080  (green/v2 after promotion)"
+  echo "  Argo Rollouts:              kubectl get rollouts -n production"
   echo ""
   exit 0
 else
