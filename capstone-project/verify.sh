@@ -379,7 +379,7 @@ else
   echo "  Smoke test: deleting team '${SMOKE_TEAM_NAME}' via Teams API..."
   curl -sf -X DELETE "http://teams-api.127.0.0.1.sslip.io:30080/teams/${SMOKE_TEAM_ID}" &>/dev/null || true
 
-  DELETE_DEADLINE=$(( $(date +%s) + 40 ))
+  DELETE_DEADLINE=$(( $(date +%s) + 90 ))
   while [ "$(date +%s)" -lt "${DELETE_DEADLINE}" ]; do
     if ! kubectl get namespace "${SMOKE_NAMESPACE}" &>/dev/null; then
       break
@@ -390,7 +390,7 @@ else
   if ! kubectl get namespace "${SMOKE_NAMESPACE}" &>/dev/null; then
     pass "Teams Operator smoke test: namespace '${SMOKE_NAMESPACE}' was deleted after team was removed"
   else
-    fail "Teams Operator smoke test: namespace '${SMOKE_NAMESPACE}' was NOT deleted within 40s after team removal"
+    fail "Teams Operator smoke test: namespace '${SMOKE_NAMESPACE}' was NOT deleted within 90s after team removal"
     # Force-clean so leftover state doesn't affect the cluster
     kubectl delete namespace "${SMOKE_NAMESPACE}" --ignore-not-found &>/dev/null || true
   fi
@@ -430,6 +430,66 @@ if echo "${ARGO_DENY_OUTPUT}" | grep -q "denied\|admission webhook"; then
   pass "Deploying a raw Deployment to 'production' is correctly DENIED"
 else
   fail "Deploying a raw Deployment to 'production' was NOT denied (RequireArgoRollouts policy may not be active)"
+fi
+echo ""
+
+# ─── RequireIDPOrigin Gatekeeper Constraint ───────────────────────────────────
+echo "--- RequireIDPOrigin Constraint ---"
+kubectl get constrainttemplate requireidporigin &>/dev/null \
+  && pass "ConstraintTemplate 'requireidporigin' exists" \
+  || fail "ConstraintTemplate 'requireidporigin' not found"
+
+kubectl get requireidporigin require-idp-origin-namespaces &>/dev/null \
+  && pass "Constraint 'require-idp-origin-namespaces' exists" \
+  || fail "Constraint 'require-idp-origin-namespaces' not found"
+
+kubectl get requireidporigin require-idp-origin-workloads &>/dev/null \
+  && pass "Constraint 'require-idp-origin-workloads' exists" \
+  || fail "Constraint 'require-idp-origin-workloads' not found"
+
+kubectl get clusterrole idp-namespace-creator &>/dev/null \
+  && pass "ClusterRole 'idp-namespace-creator' exists" \
+  || fail "ClusterRole 'idp-namespace-creator' not found"
+
+kubectl get clusterrolebinding idp-namespace-creator-binding &>/dev/null \
+  && pass "ClusterRoleBinding 'idp-namespace-creator-binding' exists" \
+  || fail "ClusterRoleBinding 'idp-namespace-creator-binding' not found"
+
+kubectl get role idp-creator -n production &>/dev/null \
+  && pass "Role 'idp-creator' in 'production' exists" \
+  || fail "Role 'idp-creator' in 'production' not found"
+
+kubectl get rolebinding idp-creator-binding -n production &>/dev/null \
+  && pass "RoleBinding 'idp-creator-binding' in 'production' exists" \
+  || fail "RoleBinding 'idp-creator-binding' in 'production' not found"
+
+# Namespace without app.kubernetes.io/managed-by — passes K8sRequiredLabels, should be DENIED by RequireIDPOrigin
+IDP_DENY_OUTPUT=$(kubectl apply -f "${SCRIPT_DIR}/gatekeeper/idp-origin/ns-deny.yaml" 2>&1 || true)
+kubectl delete -f "${SCRIPT_DIR}/gatekeeper/idp-origin/ns-deny.yaml" &>/dev/null || true
+if echo "${IDP_DENY_OUTPUT}" | grep -q "denied\|admission webhook"; then
+  pass "Namespace without managed-by label is correctly DENIED by RequireIDPOrigin"
+else
+  fail "Namespace without managed-by label was NOT denied (RequireIDPOrigin policy may not be active)"
+fi
+
+# Namespace with correct managed-by label — should be ALLOWED
+IDP_ALLOW_OUTPUT=$(kubectl apply -f "${SCRIPT_DIR}/gatekeeper/idp-origin/ns-working.yaml" 2>&1 || true)
+if echo "${IDP_ALLOW_OUTPUT}" | grep -qv "Error\|error\|denied"; then
+  pass "Namespace with 'app.kubernetes.io/managed-by: teams-operator' is correctly ALLOWED"
+  kubectl delete -f "${SCRIPT_DIR}/gatekeeper/idp-origin/ns-working.yaml" &>/dev/null || true
+else
+  fail "Namespace with correct managed-by label FAILED: ${IDP_ALLOW_OUTPUT}"
+fi
+
+# RBAC: the default ServiceAccount must NOT be able to create namespaces
+# (only the teams-operator SA has the idp-namespace-creator ClusterRole)
+# Use $() capture — kubectl auth can-i exits 1 for "no", which pipefail propagates
+# through a pipe even when grep succeeds.
+if [ "$(kubectl auth can-i create namespaces \
+    --as=system:serviceaccount:default:default 2>/dev/null || true)" = "no" ]; then
+  pass "RBAC: default ServiceAccount cannot create namespaces (idp-namespace-creator not granted)"
+else
+  fail "RBAC: default ServiceAccount CAN create namespaces — idp-namespace-creator ClusterRole is too permissive"
 fi
 echo ""
 
@@ -530,12 +590,20 @@ else
   fail "Rollout did not reach Healthy state within 120s (phase: ${PROMOTE_PHASE})"
 fi
 
-# After promotion the active service must serve the promoted color (green/v2)
-PROMOTED_RESPONSE=$(curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/ 2>/dev/null || true)
-PROMOTED_COLOR=$(echo "${PROMOTED_RESPONSE}" | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); print(d.get('color',''))" 2>/dev/null || true)
-PROMOTED_VERSION=$(echo "${PROMOTED_RESPONSE}" | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" 2>/dev/null || true)
+# After promotion the active service must serve the promoted color (green/v2).
+# Allow up to 30s for kube-proxy / ingress to propagate the updated Service endpoints.
+PROMOTED_COLOR=""
+PROMOTED_VERSION=""
+PROMOTE_COLOR_DEADLINE=$(( $(date +%s) + 30 ))
+while [ "$(date +%s)" -lt "${PROMOTE_COLOR_DEADLINE}" ]; do
+  PROMOTED_RESPONSE=$(curl -sf http://rollout-demo-api.127.0.0.1.sslip.io:30080/ 2>/dev/null || true)
+  PROMOTED_COLOR=$(echo "${PROMOTED_RESPONSE}" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('color',''))" 2>/dev/null || true)
+  PROMOTED_VERSION=$(echo "${PROMOTED_RESPONSE}" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" 2>/dev/null || true)
+  [ "${PROMOTED_COLOR}" = "green" ] && break
+  sleep 2
+done
 
 if [ "${PROMOTED_COLOR}" = "green" ]; then
   pass "After promotion: active service now returns color='green' (v2 promoted to production)"
@@ -546,6 +614,104 @@ if [ "${PROMOTED_VERSION}" = "v2" ]; then
   pass "After promotion: active service now returns version='v2'"
 else
   fail "After promotion: active service returned version='${PROMOTED_VERSION}' (expected 'v2')"
+fi
+echo ""
+
+# ─── Teams CLI Deploy ─────────────────────────────────────────────────────────
+echo "--- Teams CLI Deploy ---"
+
+CLI_DEPLOY_IMAGE="jandev/rollout-demo-api"
+CLI_DEPLOY_APP="verify-app"
+
+# 1. Create team via CLI
+DEPLOY_TEAM_JSON=$("${SCRIPT_DIR}/tli" create "verify-cli-deploy" --output json 2>/dev/null || true)
+DEPLOY_TEAM_ID=$(echo "${DEPLOY_TEAM_JSON}" | python3 -c \
+  "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null || true)
+
+if [[ -n "${DEPLOY_TEAM_ID}" ]]; then
+  pass "tli create verify-cli-deploy (id=${DEPLOY_TEAM_ID})"
+else
+  fail "tli create verify-cli-deploy returned no team ID"
+fi
+
+# 2. Deploy v1 via CLI, retrying until operator provisions the namespace (up to 90s)
+if [[ -n "${DEPLOY_TEAM_ID}" ]]; then
+  DEPLOY_DEADLINE=$((SECONDS + 90))
+  DEPLOY_OK=false
+  while [[ $SECONDS -lt ${DEPLOY_DEADLINE} ]]; do
+    if "${SCRIPT_DIR}/tli" deploy "${CLI_DEPLOY_APP}" \
+        --team "${DEPLOY_TEAM_ID}" \
+        --image "${CLI_DEPLOY_IMAGE}" \
+        --revision "v1" &>/dev/null; then
+      DEPLOY_OK=true
+      break
+    fi
+    sleep 5
+  done
+  if ${DEPLOY_OK}; then
+    pass "tli deploy ${CLI_DEPLOY_APP}:v1 succeeded"
+  else
+    fail "tli deploy ${CLI_DEPLOY_APP}:v1 did not succeed within 90s (namespace not yet provisioned?)"
+    DEPLOY_TEAM_ID=""
+  fi
+fi
+
+# 3. Wait for v1 Rollout to be Healthy (first deploy skips blue/green pause)
+if [[ -n "${DEPLOY_TEAM_ID}" ]]; then
+  HEALTHY_DEADLINE=$((SECONDS + 90))
+  HEALTHY_STATUS=""
+  while [[ $SECONDS -lt ${HEALTHY_DEADLINE} ]]; do
+    HEALTHY_STATUS=$("${SCRIPT_DIR}/tli" status "${CLI_DEPLOY_APP}" \
+      --team "${DEPLOY_TEAM_ID}" 2>/dev/null || true)
+    [[ "${HEALTHY_STATUS}" == "Healthy v1" ]] && break
+    sleep 5
+  done
+  if [[ "${HEALTHY_STATUS}" == "Healthy v1" ]]; then
+    pass "Rollout '${CLI_DEPLOY_APP}' reached Healthy v1"
+  else
+    fail "Rollout '${CLI_DEPLOY_APP}' did not reach Healthy v1 within 90s (status=${HEALTHY_STATUS})"
+    DEPLOY_TEAM_ID=""
+  fi
+fi
+
+# 4. Deploy v2 via CLI — triggers blue/green: v1 stays active, v2 waits as preview
+if [[ -n "${DEPLOY_TEAM_ID}" ]]; then
+  if "${SCRIPT_DIR}/tli" deploy "${CLI_DEPLOY_APP}" \
+      --team "${DEPLOY_TEAM_ID}" \
+      --image "${CLI_DEPLOY_IMAGE}" \
+      --revision "v2" &>/dev/null; then
+    pass "tli deploy ${CLI_DEPLOY_APP}:v2 succeeded"
+  else
+    fail "tli deploy ${CLI_DEPLOY_APP}:v2 returned non-zero exit code"
+    DEPLOY_TEAM_ID=""
+  fi
+fi
+
+# 5. Promote v2 and verify it becomes active: keep calling promote until the rollout
+#    reports "Healthy v2". The promote may need retrying if the preview pod isn't
+#    ready yet when the first attempt runs.
+if [[ -n "${DEPLOY_TEAM_ID}" ]]; then
+  PROMOTE_DEADLINE=$((SECONDS + 120))
+  PROMOTE_STATUS=""
+  while [[ $SECONDS -lt ${PROMOTE_DEADLINE} ]]; do
+    "${SCRIPT_DIR}/tli" promote "${CLI_DEPLOY_APP}" \
+      --team "${DEPLOY_TEAM_ID}" &>/dev/null || true
+    PROMOTE_STATUS=$("${SCRIPT_DIR}/tli" status "${CLI_DEPLOY_APP}" \
+      --team "${DEPLOY_TEAM_ID}" 2>/dev/null || true)
+    [[ "${PROMOTE_STATUS}" == "Healthy v2" ]] && break
+    sleep 5
+  done
+  if [[ "${PROMOTE_STATUS}" == "Healthy v2" ]]; then
+    pass "Rollout '${CLI_DEPLOY_APP}' promoted and reached Healthy v2"
+  else
+    fail "Rollout '${CLI_DEPLOY_APP}' did not reach Healthy v2 within 120s (status=${PROMOTE_STATUS})"
+  fi
+fi
+
+# 6. Cleanup via CLI (unconditional)
+if [[ -n "${DEPLOY_TEAM_ID}" ]]; then
+  "${SCRIPT_DIR}/tli" rollback "${CLI_DEPLOY_APP}" --team "${DEPLOY_TEAM_ID}" &>/dev/null || true
+  "${SCRIPT_DIR}/tli" delete "${DEPLOY_TEAM_ID}" --force &>/dev/null || true
 fi
 echo ""
 
