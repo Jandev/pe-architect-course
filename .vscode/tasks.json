@@ -1,0 +1,17 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Export Draw.io diagrams to PNG",
+            "type": "shell",
+            "command": "${workspaceFolder}/capstone-project/docs/images/export-png.sh",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}
