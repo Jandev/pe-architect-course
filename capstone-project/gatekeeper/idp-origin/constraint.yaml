@@ -1,0 +1,21 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireIDPOrigin
+metadata:
+  name: require-idp-origin
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Namespace"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment"]
+      - apiGroups: ["argoproj.io"]
+        kinds: ["Rollout"]
+    # Scoped to the production namespace and all team-* namespaces (managed by teams-operator).
+    # namespaces and namespaceSelector are OR'd together by Gatekeeper.
+    namespaces: ["production"]
+    namespaceSelector:
+      matchExpressions:
+        - key: app.kubernetes.io/managed-by
+          operator: In
+          values: ["teams-operator"]
