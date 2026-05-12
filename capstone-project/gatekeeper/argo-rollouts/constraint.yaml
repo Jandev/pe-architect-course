@@ -8,6 +8,11 @@ spec:
       - apiGroups: ["apps"]
         kinds: ["Deployment"]
     namespaces: ["production"]
+    namespaceSelector:
+      matchExpressions:
+        - key: app.kubernetes.io/managed-by
+          operator: In
+          values: ["teams-operator"]
   parameters:
     namespaces:
       - "production"
