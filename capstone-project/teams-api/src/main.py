@@ -58,6 +58,7 @@ def _seed_teams_from_cluster() -> None:
             teams_store[team_id] = {
                 "id": team_id,
                 "name": original_name,
+                "namespace": ns.metadata.name,
                 "created_at": created_at,
             }
             seeded += 1
@@ -106,6 +107,7 @@ class Team(BaseModel):
 class DeployRequest(BaseModel):
     app_name: str
     image: str
+    revision: str
 
 class PromoteRequest(BaseModel):
     app_name: str
@@ -114,24 +116,37 @@ class RollbackRequest(BaseModel):
     app_name: str
 
 
-def _sanitize_namespace_name(team_name: str) -> str:
-    """Mirror the operator's sanitize_namespace_name logic to derive the namespace from a team name."""
-    namespace = team_name.lower()
-    namespace = "".join(c if c.isalnum() else "-" for c in namespace)
-    namespace = "-".join(filter(None, namespace.split("-")))
-    namespace = namespace.strip("-")
-    if len(namespace) > 63:
-        namespace = namespace[:63].rstrip("-")
-    return f"team-{namespace}"
-
-
 def _get_team_namespace(team_id: str) -> str:
     if team_id not in teams_store:
         raise HTTPException(status_code=404, detail="Team not found")
-    return _sanitize_namespace_name(teams_store[team_id]["name"])
+    namespace = teams_store[team_id].get("namespace")
+    if not namespace:
+        # The operator may have created the namespace after this API pod started.
+        # Do a live Kubernetes lookup and cache the result so subsequent calls are fast.
+        try:
+            v1 = k8s_client.CoreV1Api()
+            ns_list = v1.list_namespace(
+                label_selector=(
+                    f"app.kubernetes.io/managed-by=teams-operator,"
+                    f"teams.example.com/team-id={team_id}"
+                )
+            )
+            if ns_list.items:
+                namespace = ns_list.items[0].metadata.name
+                teams_store[team_id]["namespace"] = namespace
+                logger.info("Resolved namespace '%s' for team %s via live lookup", namespace, team_id)
+        except Exception as exc:
+            logger.warning("Live namespace lookup failed for team %s: %s", team_id, exc)
+    if not namespace:
+        raise HTTPException(
+            status_code=409,
+            detail="Team namespace not yet provisioned — wait for the operator to reconcile",
+        )
+    return namespace
 
 
-def _build_rollout(app_name: str, image: str, namespace: str) -> dict:
+def _build_rollout(app_name: str, image: str, revision: str, namespace: str) -> dict:
+    full_image = f"{image}:{revision}"
     return {
         "apiVersion": "argoproj.io/v1alpha1",
         "kind": "Rollout",
@@ -141,6 +156,9 @@ def _build_rollout(app_name: str, image: str, namespace: str) -> dict:
             "labels": {
                 "app": app_name,
                 "app.kubernetes.io/managed-by": "teams-api",
+            },
+            "annotations": {
+                "commit-sha": revision,
             },
         },
         "spec": {
@@ -159,7 +177,7 @@ def _build_rollout(app_name: str, image: str, namespace: str) -> dict:
                     "containers": [
                         {
                             "name": app_name,
-                            "image": image,
+                            "image": full_image,
                             "imagePullPolicy": "IfNotPresent",
                             "ports": [{"containerPort": 8000}],
                             "securityContext": {
@@ -288,7 +306,7 @@ async def deploy_app(team_id: str, req: DeployRequest):
             else:
                 raise HTTPException(status_code=500, detail=f"Failed to apply service {svc_name}: {e.reason}")
 
-    rollout_body = _build_rollout(req.app_name, req.image, namespace)
+    rollout_body = _build_rollout(req.app_name, req.image, req.revision, namespace)
     try:
         custom.patch_namespaced_custom_object(
             group="argoproj.io",
@@ -315,24 +333,79 @@ async def deploy_app(team_id: str, req: DeployRequest):
 
 @app.post("/teams/{team_id}/promote")
 async def promote_app(team_id: str, req: PromoteRequest):
-    """Promote a preview revision to active by unpausing the Rollout."""
+    """Promote a paused blue/green Rollout — replicates `kubectl argo rollouts promote`.
+
+    The kubectl plugin issues a small merge-patch on the `/status` subresource
+    that clears `pauseConditions`. Once that condition is gone the controller
+    resolves `controllerPause` itself and proceeds with the cutover.
+
+    See: argoproj/argo-rollouts pkg/kubectl-argo-rollouts/cmd/promote/promote.go
+    """
     namespace = _get_team_namespace(team_id)
     custom = k8s_client.CustomObjectsApi()
+    status_patch = {"status": {"pauseConditions": None}}
     try:
-        custom.patch_namespaced_custom_object(
+        custom.patch_namespaced_custom_object_status(
             group="argoproj.io",
             version="v1alpha1",
             namespace=namespace,
             plural="rollouts",
             name=req.app_name,
-            body={"spec": {"paused": False}},
+            body=status_patch,
         )
     except ApiException as e:
         if e.status == 404:
-            raise HTTPException(status_code=404, detail=f"Rollout '{req.app_name}' not found in namespace {namespace}")
-        raise HTTPException(status_code=500, detail=f"Failed to promote rollout: {e.reason}")
+            # Either the rollout doesn't exist, or this cluster's CRD doesn't
+            # expose a status subresource. Fall back to the unified spec+status
+            # merge patch on the main resource (Rollouts v0.9 behaviour).
+            try:
+                custom.patch_namespaced_custom_object(
+                    group="argoproj.io",
+                    version="v1alpha1",
+                    namespace=namespace,
+                    plural="rollouts",
+                    name=req.app_name,
+                    body={"spec": {"paused": False}, "status": {"pauseConditions": None}},
+                )
+            except ApiException as fallback_err:
+                if fallback_err.status == 404:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Rollout '{req.app_name}' not found in namespace {namespace}",
+                    )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to promote rollout: {fallback_err.reason}",
+                )
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to promote rollout: {e.reason}")
 
     return {"message": f"Promoting {req.app_name} — switching active traffic to new version."}
+
+
+@app.get("/teams/{team_id}/apps/{app_name}/status")
+async def app_status(team_id: str, app_name: str):
+    """Return the current Argo Rollout phase for an app in the team namespace."""
+    namespace = _get_team_namespace(team_id)
+    custom = k8s_client.CustomObjectsApi()
+    try:
+        obj = custom.get_namespaced_custom_object(
+            group="argoproj.io",
+            version="v1alpha1",
+            namespace=namespace,
+            plural="rollouts",
+            name=app_name,
+        )
+        phase = obj.get("status", {}).get("phase", "Unknown")
+        revision = obj.get("metadata", {}).get("annotations", {}).get("commit-sha", "unknown")
+        return {"app_name": app_name, "namespace": namespace, "phase": phase, "revision": revision}
+    except ApiException as e:
+        if e.status == 404:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Rollout '{app_name}' not found in namespace {namespace}",
+            )
+        raise HTTPException(status_code=500, detail=f"Failed to get rollout status: {e.reason}")
 
 
 @app.post("/teams/{team_id}/rollback")
