@@ -4,3 +4,4 @@ metadata:
   name: good-ns
   labels:
     admission: "true"
+    app.kubernetes.io/managed-by: teams-operator
