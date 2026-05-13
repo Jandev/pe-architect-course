@@ -27,11 +27,11 @@ The platform is organised into four horizontal layers.
 
 Three types of external actors interact with the platform:
 
-| Actor                  | How                                                                                     |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| **Browser (End User)** | Opens the Teams UI; authenticates via Keycloak OIDC                                     |
+| Actor                  | How                                                                                                                                                                                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Browser (End User)** | Opens the Teams UI; authenticates via Keycloak OIDC                                                                                                                                                                                     |
 | **Teams CLI (`tli`)**  | `.NET 10` file-based app (`System.CommandLine`); calls the Teams API directly over HTTP. Commands: `tli create`, `tli list`, `tli delete`, `tli deploy --revision <tag>`, `tli status <app> --team <id>`, `tli promote`, `tli rollback` |
-| **Platform Engineer**  | Uses `kubectl` and `helm` to manage cluster resources and perform rollout operations    |
+| **Platform Engineer**  | Uses `kubectl` and `helm` to manage cluster resources and perform rollout operations                                                                                                                                                    |
 
 All inbound traffic reaches the cluster on a single **NodePort :30080** managed by Ingress-NGINX.
 Hostname-based routing via `sslip.io` (`*.127.0.0.1.sslip.io`) separates services without
@@ -118,18 +118,18 @@ All three security tools are deployed cluster-wide and operate independently of 
 Gatekeeper intercepts every `CREATE` and `UPDATE` request to the Kubernetes API server before
 the resource is persisted. Four `ConstraintTemplate` / `Constraint` pairs are active:
 
-| Constraint                        | Scope                                                                                   | What it blocks                                         |
-| --------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `K8sRequiredLabels`               | All namespaces                                                                          | Namespaces without `admission: "true"` label           |
-| `VulnerabilityScan`               | Deployments                                                                             | Images with critical or high CVEs above threshold      |
-| `CodeCoverageSimple`              | Deployments in `teams-api`, `teams-ui`, `engineering-platform`, `production`, `staging` | Missing `commit-sha` annotation or coverage below 80%  |
-| `FalcoRootPrevention`             | Pods / Deployments                                                                      | Containers running as UID 0 or with `privileged: true` |
-| `RequireIDPOriginNamespaces`      | All Namespace objects (cluster-wide)                                                    | Namespaces without `app.kubernetes.io/managed-by: teams-operator` label |
-| `RequireIDPOriginWorkloads`       | Deployments and Rollouts in `production` and `team-*` namespaces                        | Workloads without `app.kubernetes.io/managed-by: teams-operator` label |
-| `RequireArgoRollouts`             | Deployments in `team-*` and `production` namespaces                                     | Standard Deployments that should use Rollout CRDs instead |
+| Constraint                   | Scope                                                                                   | What it blocks                                                          |
+| ---------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `K8sRequiredLabels`          | All namespaces                                                                          | Namespaces without `admission: "true"` label                            |
+| `VulnerabilityScan`          | Deployments                                                                             | Images with critical or high CVEs above threshold                       |
+| `CodeCoverageSimple`         | Deployments in `teams-api`, `teams-ui`, `engineering-platform`, `production`, `staging` | Missing `commit-sha` annotation or coverage below 80%                   |
+| `FalcoRootPrevention`        | Pods / Deployments                                                                      | Containers running as UID 0 or with `privileged: true`                  |
+| `RequireIDPOriginNamespaces` | All Namespace objects (cluster-wide)                                                    | Namespaces without `app.kubernetes.io/managed-by: teams-operator` label |
+| `RequireIDPOriginWorkloads`  | Deployments and Rollouts in `production` and `team-*` namespaces                        | Workloads without `app.kubernetes.io/managed-by: teams-operator` label  |
+| `RequireArgoRollouts`        | Deployments in `team-*` and `production` namespaces                                     | Standard Deployments that should use Rollout CRDs instead               |
 
 > `RequireIDPOriginNamespaces` and `RequireIDPOriginWorkloads` are split from a single constraint
-> because Gatekeeper's `namespaceSelector` is evaluated against the namespace of the *requesting*
+> because Gatekeeper's `namespaceSelector` is evaluated against the namespace of the _requesting_
 > object — for cluster-scoped Namespace resources this means the selector is applied to the new
 > namespace itself, which has no labels yet.
 

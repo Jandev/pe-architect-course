@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="Platform Architecture" id="platform-architecture">
-        <mxGraphModel dx="2497" dy="1795" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+        <mxGraphModel dx="1530" dy="1794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -47,10 +47,10 @@
                     <mxGeometry x="15" y="35" width="230" height="100" as="geometry"/>
                 </mxCell>
                 <mxCell id="ns-teams-api" value="ns: teams-api" style="swimlane;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;" parent="app-group" vertex="1">
-                    <mxGeometry x="600" y="50" width="280" height="180" as="geometry"/>
+                    <mxGeometry x="600" y="50" width="280" height="190" as="geometry"/>
                 </mxCell>
                 <mxCell id="teams-api-svc" value="Teams API (FastAPI)&#xa;container :8000, Svc :4200&#xa;GET/POST /teams&#xa;GET/DELETE /teams/{id}&#xa;GET /health&#xa;POST /teams/{id}/deploy&#xa;GET /teams/{id}/apps/{app}/status&#xa;POST /teams/{id}/promote&#xa;POST /teams/{id}/rollback&#xa;SA: namespaces, services, rollouts, rollouts/status&#xa;teams-api.127.0.0.1.sslip.io" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="ns-teams-api" vertex="1">
-                    <mxGeometry x="15" y="35" width="250" height="120" as="geometry"/>
+                    <mxGeometry x="15" y="35" width="250" height="145" as="geometry"/>
                 </mxCell>
                 <mxCell id="ns-operator" value="ns: engineering-platform" style="swimlane;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=11;" parent="app-group" vertex="1">
                     <mxGeometry x="1200" y="50" width="280" height="180" as="geometry"/>
@@ -115,7 +115,7 @@
                 <mxCell id="prom-graf-arrow" value="data source" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="obs-group" source="prometheus-box" target="grafana-box" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="2" value="" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;dashed=1;strokeColor=#82b366;" edge="1" parent="obs-group" source="prometheus-box" target="grafana-box">
+                <mxCell id="2" value="" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;dashed=1;strokeColor=#82b366;" parent="obs-group" source="prometheus-box" target="grafana-box" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <mxPoint x="340" y="88" as="sourcePoint"/>
                         <mxPoint x="740" y="-505" as="targetPoint"/>
@@ -160,8 +160,8 @@
                 <mxCell id="arr-op-api" value="GET /teams (cluster DNS)" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="operator-svc" target="teams-api-svc" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="1380" y="650"/>
-                            <mxPoint x="780" y="650"/>
+                            <mxPoint x="1380" y="670"/>
+                            <mxPoint x="780" y="670"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
