@@ -1,0 +1,35 @@
+# Constraint 1: Namespace-scoped enforcement
+# For cluster-scoped resources (Namespace), namespaceSelector is evaluated against
+# the object itself — so a new namespace being created has no labels yet, and any
+# selector would exclude it. The fix is a separate constraint with no scope filter,
+# applying to all new namespaces cluster-wide.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireIDPOrigin
+metadata:
+  name: require-idp-origin-namespaces
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Namespace"]
+---
+# Constraint 2: Workload-scoped enforcement
+# Matches Deployments and Rollouts inside the production namespace and any
+# team-* namespace managed by the teams-operator.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireIDPOrigin
+metadata:
+  name: require-idp-origin-workloads
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment"]
+      - apiGroups: ["argoproj.io"]
+        kinds: ["Rollout"]
+    namespaces: ["production"]
+    namespaceSelector:
+      matchExpressions:
+        - key: app.kubernetes.io/managed-by
+          operator: In
+          values: ["teams-operator"]

@@ -21,10 +21,20 @@ spec:
       rego: |
         package requireargorollouts
 
+        # Trigger if the namespace is in the explicit parameter list (e.g. "production")
+        # OR if the namespace carries the teams-operator managed-by label (all team-* namespaces).
+        managed_namespace(ns) {
+          ns == input.parameters.namespaces[_]
+        }
+
+        managed_namespace(ns) {
+          data.inventory.cluster["v1"].Namespace[ns].metadata.labels["app.kubernetes.io/managed-by"] == "teams-operator"
+        }
+
         violation[{"msg": msg}] {
           input.review.object.kind == "Deployment"
           ns := input.review.object.metadata.namespace
-          ns == input.parameters.namespaces[_]
+          managed_namespace(ns)
           msg := sprintf(
             "Deployments are not allowed in namespace '%v'. Use an Argo Rollout (argoproj.io/v1alpha1 Rollout) instead to ensure progressive delivery.",
             [ns]

@@ -17,17 +17,53 @@
     <div class="team-card" *ngFor="let team of teams">
       <div class="team-header">
         <h3 class="team-name">{{ team.name }}</h3>
-        <button
-          class="btn btn-danger btn-sm"
-          (click)="deleteTeam(team.id, team.name)"
-          title="Delete team"
-        >
+        <button class="btn btn-danger btn-sm" (click)="deleteTeam(team.id, team.name)" title="Delete team">
           Delete
         </button>
       </div>
       <div class="team-details">
         <p class="team-id">ID: {{ team.id }}</p>
         <p class="team-created">Created: {{ formatDate(team.created_at) }}</p>
+      </div>
+
+      <!-- Deploy Panel -->
+      <div class="deploy-toggle">
+        <button class="btn btn-sm" [class.btn-primary]="!expandedDeploys.has(team.id)"
+          [class.btn-secondary]="expandedDeploys.has(team.id)" (click)="toggleDeploy(team.id)">
+          {{ expandedDeploys.has(team.id) ? 'Hide Deploy' : 'Deploy App' }}
+        </button>
+      </div>
+
+      <div class="deploy-panel" *ngIf="expandedDeploys.has(team.id)">
+        <div class="deploy-form">
+          <input class="form-input" type="text" placeholder="App name (e.g. checkout)"
+            [(ngModel)]="deployForms[team.id].appName" />
+          <input class="form-input" type="text" placeholder="Image base (e.g. jandev/rollout-demo-api)"
+            [(ngModel)]="deployForms[team.id].image" />
+          <input class="form-input" type="text" placeholder="Revision / tag (e.g. v1)"
+            [(ngModel)]="deployForms[team.id].revision" />
+        </div>
+        <div class="deploy-actions">
+          <button class="btn btn-success btn-sm" [disabled]="deployStatus[team.id]?.loading"
+            (click)="onDeploy(team.id)">
+            Deploy
+          </button>
+          <ng-container *ngIf="deployStatus[team.id]?.lastApp">
+            <button class="btn btn-warning btn-sm" [disabled]="deployStatus[team.id]?.loading"
+              (click)="onPromote(team.id)">
+              Promote
+            </button>
+            <button class="btn btn-danger btn-sm" [disabled]="deployStatus[team.id]?.loading"
+              (click)="onRollback(team.id)">
+              Rollback
+            </button>
+          </ng-container>
+        </div>
+        <div class="deploy-status" *ngIf="deployStatus[team.id]">
+          <span *ngIf="deployStatus[team.id].loading" class="status-loading">Working…</span>
+          <span *ngIf="deployStatus[team.id].success" class="status-success">{{ deployStatus[team.id].success }}</span>
+          <span *ngIf="deployStatus[team.id].error" class="status-error">{{ deployStatus[team.id].error }}</span>
+        </div>
       </div>
     </div>
   </div>

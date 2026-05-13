@@ -42,7 +42,7 @@ Deployed in the `teams-ui` namespace. Exposed at `http://teams-ui.127.0.0.1.ssli
 
 Deployed in the `teams-api` namespace. Exposed at `http://teams-api.127.0.0.1.sslip.io:30080`.
 
-- **RBAC**: a `ServiceAccount` + `ClusterRole` (get/list namespaces) + `ClusterRoleBinding` allow the pod to query the Kubernetes API
+- **RBAC**: a `ServiceAccount` + `ClusterRole` + `ClusterRoleBinding` allow the pod to query the Kubernetes API. The ClusterRole grants: get/list on `namespaces`; get/list/create/update/patch on `services`; get/list/create/update/patch on `argoproj.io/rollouts`; get/update/patch on `argoproj.io/rollouts/status` (needed by the promote endpoint, which mirrors `kubectl argo rollouts promote`)
 - **Startup seeding**: on startup the API lists all namespaces labelled `app.kubernetes.io/managed-by=teams-operator` and populates the in-memory store from their labels and annotations (`teams.example.com/team-id`, `teams.example.com/original-team-name`, `teams.example.com/created-at`). This ensures state survives pod restarts.
 - Requires `kubernetes==28.1.0` (added to `requirements.txt`)
 
@@ -100,24 +100,30 @@ driver — all scanning is API-based. Capabilities enabled:
 ./deploy.sh
 ```
 
-The script runs 25 steps end-to-end:
+The script runs 32 steps end-to-end:
 
-| Steps | What is deployed                                              |
-| ----- | ------------------------------------------------------------- |
-| 1     | Add Helm repositories                                         |
-| 2     | Ingress-NGINX                                                 |
-| 3     | Grafana / kube-prometheus-stack                               |
-| 4     | OPA Gatekeeper                                                |
-| 5–7   | Gatekeeper constraints (namespace labels, CVE, code coverage) |
-| 8     | Falco (skipped on OrbStack)                                   |
-| 9     | Kubescape                                                     |
-| 10    | Gatekeeper secops constraint (root prevention)                |
-| 11    | Metrics Server                                                |
-| 12–13 | Keycloak (Postgres + Keycloak rollout)                        |
-| 14–17 | Teams API (image build, kind load, deploy, ingress)           |
-| 18–21 | Teams UI (image build, kind load, deploy)                     |
-| 22–24 | Teams Operator (image build, kind load, deploy)               |
-| 25    | Done — summary with all service URLs                          |
+| Steps | What is deployed                                                     |
+| ----- | -------------------------------------------------------------------- |
+| 1     | Add Helm repositories                                                |
+| 2     | Ingress-NGINX                                                        |
+| 3     | Grafana / kube-prometheus-stack                                      |
+| 4     | OPA Gatekeeper                                                       |
+| 5–7   | Gatekeeper constraints (namespace labels, CVE, code coverage)        |
+| 8     | Falco (skipped on OrbStack)                                          |
+| 9     | Kubescape                                                            |
+| 10    | Gatekeeper secops constraint (root prevention)                       |
+| 11    | Metrics Server                                                       |
+| 12–13 | Keycloak (Postgres + Keycloak rollout)                               |
+| 14    | Teams CLI (build + install as `./tli`)                               |
+| 15–18 | Teams API (image build, kind load, deploy, rollout wait)             |
+| 19–21 | Teams UI (image build, kind load, deploy)                            |
+| 22–24 | Teams Operator (image build, kind load, deploy)                      |
+| 25    | Argo Rollouts controller + kubectl plugin                            |
+| 26    | Production namespace + RequireArgoRollouts constraint                |
+| 27    | RequireIDPOrigin RBAC (ClusterRole + Role in production)             |
+| 28    | RequireIDPOrigin constraint template + constraint                    |
+| 29–31 | rollout-demo-api images (build v1+v2, push to Docker Hub, kind load) |
+| 32    | Deploy rollout-demo-api via Argo Rollouts (blue/green, paused)       |
 
 `deploy.sh` auto-detects OrbStack and skips Falco and the `kind load` steps on that environment.
 
@@ -143,3 +149,16 @@ Falco checks are automatically skipped on OrbStack with a `[SKIP]` message.
 | Keycloak     | http://platform-auth.127.0.0.1.sslip.io:30080 | admin / admin123 |
 | Teams API    | http://teams-api.127.0.0.1.sslip.io:30080     |                  |
 | Teams UI     | http://teams-ui.127.0.0.1.sslip.io:30080      | admin / admin123 |
+
+## Teardown
+
+```bash
+./teardown.sh
+```
+
+Removes every resource deployed by `deploy.sh` in the safe reverse order: Gatekeeper
+policies are revoked first (so the admission webhook cannot block deletions), then all
+RBAC is stripped (so service accounts lose write access while workloads are still
+running), then the Teams Operator is stopped, then workloads and namespaces are deleted,
+and finally the cluster infrastructure (Argo Rollouts, Keycloak, Kubescape, Falco,
+Grafana, Ingress-NGINX, Metrics Server, OPA Gatekeeper) is uninstalled.

@@ -1,0 +1,60 @@
+# ─── Namespaced RBAC (production namespace) ───────────────────────────────────
+# Restricts create/update/patch/delete of Deployments and Rollouts in the
+# production namespace to the Teams API and Teams Operator service accounts only.
+# The Teams Operator creates an equivalent Role+RoleBinding in each team-* namespace
+# at provisioning time (see teams_operator.py).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: idp-creator
+  namespace: production
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "update", "patch", "delete"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts"]
+    verbs: ["create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: idp-creator-binding
+  namespace: production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: idp-creator
+subjects:
+  - kind: ServiceAccount
+    name: teams-api
+    namespace: teams-api
+  - kind: ServiceAccount
+    name: teams-operator
+    namespace: engineering-platform
+---
+# ─── Cluster-scoped RBAC ──────────────────────────────────────────────────────
+# Namespace creation is a cluster-scoped operation; RBAC cannot restrict it to
+# a subset of namespace names. This ClusterRole+ClusterRoleBinding grants
+# namespace lifecycle verbs exclusively to the Teams Operator service account.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: idp-namespace-creator
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: idp-namespace-creator-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: idp-namespace-creator
+subjects:
+  - kind: ServiceAccount
+    name: teams-operator
+    namespace: engineering-platform

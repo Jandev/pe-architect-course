@@ -112,6 +112,7 @@ Bonus content: configure a new Grafana dashboard for the Argo Rollouts.
 ### Minimum Viable Capstone
 
 To meet the requirements, your capstone must demonstrate:
+
 - An API deployed and reachable in your cluster
 - A Gatekeeper constraint that enforces Argo Rollout usage for production deployments
 - The API deployed via an Argo Rollout (Blue/Green or Canary) that passes your constraint
@@ -120,6 +121,7 @@ To meet the requirements, your capstone must demonstrate:
 ### Optional Extensions (Not Required)
 
 If you finish early and want to go further:
+
 - Add Keycloak authentication to the Teams UI
 - Extend the Teams Operator to provision ResourceQuotas or NetworkPolicies per team namespace
 - Integrate a real CVE scanner (Trivy, Grype) to replace the static vulnerability data in the CVE constraint
@@ -135,9 +137,22 @@ This is intentional — your platform components must comply with the same polic
 
 **Images not found when deploying to kind:**
 After building a Docker image locally, you must load it into the kind cluster:
+
 ```bash
 kind load docker-image <image-name>:<tag> --name 5min-idp
 ```
 
 **In-memory data loss:**
 The Teams API uses in-memory storage. If the API pod restarts, all team data is lost. For the capstone demo, create your test teams just before presenting, or extend the API with a persistent backend.
+
+---
+
+### Teardown
+
+To remove all resources deployed for the capstone, run the teardown script from the capstone project root:
+
+```bash
+./teardown.sh
+```
+
+The script removes everything in the correct order — Gatekeeper policies and RBAC first so nothing can block subsequent deletions, then workloads and namespaces, then cluster infrastructure.

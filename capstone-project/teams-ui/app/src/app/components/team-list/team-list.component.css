@@ -60,7 +60,7 @@
 }
 
 .team-id {
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   word-break: break-all;
 }
 
@@ -89,4 +89,93 @@
   border-radius: 6px;
   color: #7f8c8d;
   font-weight: 600;
+}
+
+/* Deploy panel */
+.deploy-toggle {
+  margin-top: 12px;
+}
+
+.deploy-panel {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f4f6f8;
+  border-radius: 6px;
+  border: 1px solid #dde1e7;
+}
+
+.deploy-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.form-input {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.deploy-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-success {
+  background-color: #27ae60;
+  color: white;
+}
+
+.btn-success:hover {
+  background-color: #219150;
+}
+
+.btn-warning {
+  background-color: #f39c12;
+  color: white;
+}
+
+.btn-warning:hover {
+  background-color: #d68910;
+}
+
+.btn-primary {
+  background-color: #3498db;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #2980b9;
+}
+
+.btn-secondary {
+  background-color: #95a5a6;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #7f8c8d;
+}
+
+.deploy-status {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.status-loading {
+  color: #7f8c8d;
+  font-style: italic;
+}
+
+.status-success {
+  color: #27ae60;
+}
+
+.status-error {
+  color: #e74c3c;
 }

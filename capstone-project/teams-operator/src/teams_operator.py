@@ -39,6 +39,7 @@ class TeamsOperator:
             logger.info("Loaded local kubeconfig")
         
         self.k8s_core_v1 = client.CoreV1Api()
+        self.k8s_rbac_v1 = client.RbacAuthorizationV1Api()
         self._seed_from_cluster()
         
     def _seed_from_cluster(self) -> None:
@@ -131,6 +132,10 @@ class TeamsOperator:
             # Create the namespace
             self.k8s_core_v1.create_namespace(body=namespace_body)
             logger.info(f"✅ Created namespace '{namespace_name}' for team '{team_name}' (ID: {team_id}) at {created_at}")
+
+            # Stamp RBAC so only IDP components can create/update Rollouts in this namespace
+            self._create_idp_rbac(namespace_name)
+
             return True
             
         except ApiException as e:
@@ -143,6 +148,63 @@ class TeamsOperator:
         except Exception as e:
             logger.error(f"❌ Unexpected error creating namespace: {e}")
             return False
+
+    def _create_idp_rbac(self, namespace_name: str) -> None:
+        """Create the idp-creator Role and RoleBinding in the given namespace.
+
+        These restrict Deployment and Rollout write operations to the teams-api
+        and teams-operator service accounts, providing defence-in-depth alongside
+        the Gatekeeper RequireIDPOrigin admission policy.
+        """
+        role_body = client.V1Role(
+            metadata=client.V1ObjectMeta(
+                name="idp-creator",
+                namespace=namespace_name,
+                labels={"app.kubernetes.io/managed-by": "teams-operator"},
+            ),
+            rules=[
+                client.V1PolicyRule(
+                    api_groups=["apps"],
+                    resources=["deployments"],
+                    verbs=["create", "update", "patch", "delete"],
+                ),
+                client.V1PolicyRule(
+                    api_groups=["argoproj.io"],
+                    resources=["rollouts"],
+                    verbs=["create", "update", "patch", "delete"],
+                ),
+            ],
+        )
+        binding_body = client.V1RoleBinding(
+            metadata=client.V1ObjectMeta(
+                name="idp-creator-binding",
+                namespace=namespace_name,
+                labels={"app.kubernetes.io/managed-by": "teams-operator"},
+            ),
+            role_ref=client.V1RoleRef(
+                api_group="rbac.authorization.k8s.io",
+                kind="Role",
+                name="idp-creator",
+            ),
+            subjects=[
+                client.V1Subject(kind="ServiceAccount", name="teams-api", namespace="teams-api"),
+                client.V1Subject(kind="ServiceAccount", name="teams-operator", namespace="engineering-platform"),
+            ],
+        )
+        for obj, create_fn in [
+            (role_body, lambda: self.k8s_rbac_v1.create_namespaced_role(namespace_name, role_body)),
+            (binding_body, lambda: self.k8s_rbac_v1.create_namespaced_role_binding(namespace_name, binding_body)),
+        ]:
+            try:
+                create_fn()
+                kind = obj.kind if hasattr(obj, "kind") and obj.kind else type(obj).__name__
+                logger.info("✅ Created %s in namespace '%s'", kind, namespace_name)
+            except ApiException as e:
+                if e.status == 409:
+                    kind = type(obj).__name__
+                    logger.info("ℹ️  %s already exists in '%s', skipping", kind, namespace_name)
+                else:
+                    logger.error("❌ Failed to create RBAC in '%s': %s", namespace_name, e)
     
     def delete_namespace(self, namespace_name: str, team_name: str) -> bool:
         """Delete a Kubernetes namespace when team is removed"""

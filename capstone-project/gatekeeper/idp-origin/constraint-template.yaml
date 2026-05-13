@@ -1,0 +1,42 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: requireidporigin
+spec:
+  crd:
+    spec:
+      names:
+        kind: RequireIDPOrigin
+      validation:
+        openAPIV3Schema:
+          type: object
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package requireidporigin
+
+        # Resources that carry app.kubernetes.io/managed-by set to one of the
+        # approved IDP values are allowed through. Anything else is denied.
+        # This is a defence-in-depth layer — RBAC is the primary control.
+        approved := {"teams-api", "teams-operator"}
+
+        violation[{"msg": msg}] {
+          label := input.review.object.metadata.labels["app.kubernetes.io/managed-by"]
+          not approved[label]
+          kind := input.review.object.kind
+          name := input.review.object.metadata.name
+          msg := sprintf(
+            "%v '%v' is missing label app.kubernetes.io/managed-by with value 'teams-api' or 'teams-operator'. Resources in managed namespaces must be created through the IDP.",
+            [kind, name]
+          )
+        }
+
+        violation[{"msg": msg}] {
+          not input.review.object.metadata.labels["app.kubernetes.io/managed-by"]
+          kind := input.review.object.kind
+          name := input.review.object.metadata.name
+          msg := sprintf(
+            "%v '%v' is missing label app.kubernetes.io/managed-by. Resources in managed namespaces must be created through the IDP.",
+            [kind, name]
+          )
+        }

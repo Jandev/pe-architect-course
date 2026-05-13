@@ -5,6 +5,7 @@ metadata:
   namespace: production
   labels:
     app: rollout-demo-api
+    app.kubernetes.io/managed-by: teams-operator
   annotations:
     # CodeCoverageSimple: d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0a1b2c3 → 85% coverage (≥80% required)
     # Note: Gatekeeper's CodeCoverageSimple only targets apps/v1 Deployment — this Rollout is not subject to it.

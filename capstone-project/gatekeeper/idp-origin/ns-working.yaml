@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: idp-origin-verify-allow
+  labels:
+    admission: "true"
+    app.kubernetes.io/managed-by: teams-operator
+    # Both K8sRequiredLabels and RequireIDPOrigin (require-idp-origin-namespaces) should ALLOW this namespace

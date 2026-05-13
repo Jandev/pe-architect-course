@@ -129,6 +129,112 @@ var rootCommand = new RootCommand("Teams CLI — manage engineering teams via th
     rootCommand.AddCommand(cmd);
 }
 
+// ─── status ──────────────────────────────────────────────────────────────────
+{
+    var appArg = new Argument<string>("app_name", "Application name");
+    var teamOpt = new Option<string>("--team", "Team ID") { IsRequired = true };
+    var urlOpt = new Option<string>("--url", () => DefaultUrl, "Teams API base URL");
+    var cmd = new Command("status", "Get the current rollout phase for an application");
+    cmd.AddArgument(appArg);
+    cmd.AddOption(teamOpt);
+    cmd.AddOption(urlOpt);
+    cmd.SetHandler(async (string appName, string team, string url) =>
+    {
+        var node = await GetJsonAsync(url, $"/teams/{team}/apps/{appName}/status");
+        if (node is null) return;
+        var phase = node["phase"]?.ToString() ?? "Unknown";
+        var revision = node["revision"]?.ToString() ?? "unknown";
+        Console.WriteLine($"{phase} {revision}");
+    }, appArg, teamOpt, urlOpt);
+    rootCommand.AddCommand(cmd);
+}
+
+// ─── deploy ──────────────────────────────────────────────────────────────────
+{
+    var appArg = new Argument<string>("app_name", "Application name");
+    var teamOpt = new Option<string>("--team", "Team ID") { IsRequired = true };
+    var imageOpt = new Option<string>("--image", "Container image base (e.g. registry.io/checkout)") { IsRequired = true };
+    var revisionOpt = new Option<string>("--revision", "Image tag / revision to deploy (e.g. v2)") { IsRequired = true };
+    var urlOpt = new Option<string>("--url", () => DefaultUrl, "Teams API base URL");
+    var cmd = new Command("deploy", "Deploy an application to a team namespace via Argo Rollouts");
+    cmd.AddArgument(appArg);
+    cmd.AddOption(teamOpt);
+    cmd.AddOption(imageOpt);
+    cmd.AddOption(revisionOpt);
+    cmd.AddOption(urlOpt);
+    cmd.SetHandler(async (string appName, string team, string image, string revision, string url) =>
+    {
+        using var http = new HttpClient();
+        var body = JsonSerializer.Serialize(new { app_name = appName, image, revision });
+        var response = await http.PostAsync($"{url}/teams/{team}/deploy",
+            new StringContent(body, Encoding.UTF8, "application/json"));
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync();
+            await Console.Error.WriteLineAsync($"Error: {err}");
+            Environment.Exit(1);
+            return;
+        }
+        Console.WriteLine($"Deploying {appName} → {image}:{revision}");
+        Console.WriteLine("Preview pod is spinning up. Run 'tli promote' when ready.");
+    }, appArg, teamOpt, imageOpt, revisionOpt, urlOpt);
+    rootCommand.AddCommand(cmd);
+}
+
+// ─── promote ─────────────────────────────────────────────────────────────────
+{
+    var appArg = new Argument<string>("app_name", "Application name");
+    var teamOpt = new Option<string>("--team", "Team ID") { IsRequired = true };
+    var urlOpt = new Option<string>("--url", () => DefaultUrl, "Teams API base URL");
+    var cmd = new Command("promote", "Promote a preview revision to active (switch live traffic)");
+    cmd.AddArgument(appArg);
+    cmd.AddOption(teamOpt);
+    cmd.AddOption(urlOpt);
+    cmd.SetHandler(async (string appName, string team, string url) =>
+    {
+        using var http = new HttpClient();
+        var body = JsonSerializer.Serialize(new { app_name = appName });
+        var response = await http.PostAsync($"{url}/teams/{team}/promote",
+            new StringContent(body, Encoding.UTF8, "application/json"));
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync();
+            await Console.Error.WriteLineAsync($"Error: {err}");
+            Environment.Exit(1);
+            return;
+        }
+        Console.WriteLine($"Promoting {appName} — switching active traffic to new version.");
+    }, appArg, teamOpt, urlOpt);
+    rootCommand.AddCommand(cmd);
+}
+
+// ─── rollback ────────────────────────────────────────────────────────────────
+{
+    var appArg = new Argument<string>("app_name", "Application name");
+    var teamOpt = new Option<string>("--team", "Team ID") { IsRequired = true };
+    var urlOpt = new Option<string>("--url", () => DefaultUrl, "Teams API base URL");
+    var cmd = new Command("rollback", "Abort an in-progress rollout; active version stays live");
+    cmd.AddArgument(appArg);
+    cmd.AddOption(teamOpt);
+    cmd.AddOption(urlOpt);
+    cmd.SetHandler(async (string appName, string team, string url) =>
+    {
+        using var http = new HttpClient();
+        var body = JsonSerializer.Serialize(new { app_name = appName });
+        var response = await http.PostAsync($"{url}/teams/{team}/rollback",
+            new StringContent(body, Encoding.UTF8, "application/json"));
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync();
+            await Console.Error.WriteLineAsync($"Error: {err}");
+            Environment.Exit(1);
+            return;
+        }
+        Console.WriteLine($"Rolling back {appName} — aborting rollout, active version remains live.");
+    }, appArg, teamOpt, urlOpt);
+    rootCommand.AddCommand(cmd);
+}
+
 return await rootCommand.InvokeAsync(args);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

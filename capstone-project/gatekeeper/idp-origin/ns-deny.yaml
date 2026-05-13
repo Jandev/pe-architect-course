@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: idp-origin-verify-deny
+  labels:
+    admission: "true"
+    # app.kubernetes.io/managed-by intentionally absent
+    # K8sRequiredLabels is satisfied (admission: "true" present)
+    # RequireIDPOrigin (require-idp-origin-namespaces) should DENY this namespace
