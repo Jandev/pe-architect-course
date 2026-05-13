@@ -49,7 +49,7 @@
                 <mxCell id="ns-teams-api" value="ns: teams-api" style="swimlane;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;" parent="app-group" vertex="1">
                     <mxGeometry x="600" y="50" width="280" height="180" as="geometry"/>
                 </mxCell>
-                <mxCell id="teams-api-svc" value="Teams API (FastAPI)&#xa;container :8000, Svc :4200&#xa;GET/POST /teams&#xa;GET/DELETE /teams/{id}&#xa;GET /health&#xa;teams-api.127.0.0.1.sslip.io" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="ns-teams-api" vertex="1">
+                <mxCell id="teams-api-svc" value="Teams API (FastAPI)&#xa;container :8000, Svc :4200&#xa;GET/POST /teams&#xa;GET/DELETE /teams/{id}&#xa;GET /health&#xa;POST /teams/{id}/deploy&#xa;GET /teams/{id}/apps/{app}/status&#xa;POST /teams/{id}/promote&#xa;POST /teams/{id}/rollback&#xa;SA: namespaces, services, rollouts, rollouts/status&#xa;teams-api.127.0.0.1.sslip.io" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="ns-teams-api" vertex="1">
                     <mxGeometry x="15" y="35" width="250" height="120" as="geometry"/>
                 </mxCell>
                 <mxCell id="ns-operator" value="ns: engineering-platform" style="swimlane;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=11;" parent="app-group" vertex="1">
@@ -79,7 +79,7 @@
                 <mxCell id="gatekeeper-ns" value="ns: gatekeeper-system" style="swimlane;startSize=22;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=10;" parent="sec-group" vertex="1">
                     <mxGeometry x="20" y="40" width="560" height="130" as="geometry"/>
                 </mxCell>
-                <mxCell id="gatekeeper-box" value="OPA Gatekeeper (Admission Webhook)&#xa;K8sRequiredLabels → namespaces must have admission=true&#xa;VulnerabilityScan → block high/critical CVE images&#xa;CodeCoverageSimple → require commit-sha annotation ≥80%&#xa;FalcoRootPrevention → block UID 0 / privileged containers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" parent="gatekeeper-ns" vertex="1">
+                <mxCell id="gatekeeper-box" value="OPA Gatekeeper (Admission Webhook)&#xa;K8sRequiredLabels → namespaces must have admission=true&#xa;VulnerabilityScan → block high/critical CVE images&#xa;CodeCoverageSimple → require commit-sha annotation ≥80%&#xa;FalcoRootPrevention → block UID 0 / privileged containers&#xa;RequireIDPOriginNamespaces → namespaces must have managed-by=teams-operator&#xa;RequireIDPOriginWorkloads → Deployments/Rollouts must have managed-by=teams-operator&#xa;RequireArgoRollouts → enforce Rollout CRD in team-* &amp; production ns" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" parent="gatekeeper-ns" vertex="1">
                     <mxGeometry x="10" y="30" width="540" height="85" as="geometry"/>
                 </mxCell>
                 <mxCell id="falco-ns" value="ns: falco-system" style="swimlane;startSize=22;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=10;" parent="sec-group" vertex="1">
@@ -173,7 +173,7 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="arr-api-kube" value="list namespaces (seed)" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;dashed=1;" parent="1" source="teams-api-svc" target="kube-apiserver" edge="1">
+                <mxCell id="arr-api-kube" value="namespaces, services, rollouts, rollouts/status" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;dashed=1;" parent="1" source="teams-api-svc" target="kube-apiserver" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="780" y="690"/>
